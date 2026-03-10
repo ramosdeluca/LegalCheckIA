@@ -17,10 +17,21 @@ export const Dashboard: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [processToDelete, setProcessToDelete] = useState<any | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
-  
+
   // New Processo Form
   const [numero, setNumero] = useState('');
   const [cliente, setCliente] = useState('');
+
+  const formatProcessNumber = (value: string) => {
+    const digits = value.replace(/\D/g, '');
+    let formatted = digits;
+    if (digits.length > 7) formatted = digits.replace(/^(\d{7})(\d)/, '$1-$2');
+    if (digits.length > 9) formatted = formatted.replace(/^(\d{7})-(\d{2})(\d)/, '$1-$2.$3');
+    if (digits.length > 13) formatted = formatted.replace(/^(\d{7})-(\d{2})\.(\d{4})(\d)/, '$1-$2.$3.$4');
+    if (digits.length > 14) formatted = formatted.replace(/^(\d{7})-(\d{2})\.(\d{4})\.(\d{1})(\d)/, '$1-$2.$3.$4.$5');
+    if (digits.length > 16) formatted = formatted.replace(/^(\d{7})-(\d{2})\.(\d{4})\.(\d{1})\.(\d{2})(\d)/, '$1-$2.$3.$4.$5.$6');
+    return formatted.substring(0, 25);
+  };
 
   const fetchProcessos = async () => {
     if (!user) return;
@@ -28,7 +39,7 @@ export const Dashboard: React.FC = () => {
       .from('processos')
       .select('*')
       .order('created_at', { ascending: false });
-    
+
     if (!error) setProcessos(data);
     setLoading(false);
   };
@@ -45,7 +56,7 @@ export const Dashboard: React.FC = () => {
       .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle();
-    
+
     if (!error && data) {
       setAnalysisResult(data.resultado_json);
       setAnalysisUrls({ video: data.video_url, pdf: data.pdf_url });
@@ -97,7 +108,7 @@ export const Dashboard: React.FC = () => {
 
       if (analises && analises.length > 0) {
         const filesToDelete: string[] = [];
-        
+
         analises.forEach(a => {
           if (a.video_url) {
             const path = a.video_url.split('/storage/v1/object/public/legalcheck/')[1];
@@ -138,7 +149,7 @@ export const Dashboard: React.FC = () => {
     }
   };
 
-  const filteredProcessos = processos.filter(p => 
+  const filteredProcessos = processos.filter(p =>
     p.numero_processo.toLowerCase().includes(searchTerm.toLowerCase()) ||
     p.cliente.toLowerCase().includes(searchTerm.toLowerCase())
   );
@@ -161,13 +172,13 @@ export const Dashboard: React.FC = () => {
           </div>
           <h1 className="text-xl font-serif text-[#1a1a1a]">LegalCheck IA</h1>
         </div>
-        
+
         <div className="flex items-center gap-6">
           <div className="flex items-center gap-2 text-sm text-gray-600">
             <UserIcon size={16} />
             <span>{user?.email}</span>
           </div>
-          <button 
+          <button
             onClick={signOut}
             className="text-gray-400 hover:text-red-500 transition-colors"
           >
@@ -181,7 +192,7 @@ export const Dashboard: React.FC = () => {
         <div className="lg:col-span-4 space-y-6">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-widest">Meus Processos</h2>
-            <button 
+            <button
               onClick={() => setShowNewProcessoModal(true)}
               className="p-2 bg-[#5A5A40] text-white rounded-full hover:bg-[#4a4a35] transition-all shadow-lg shadow-[#5A5A40]/20"
             >
@@ -209,8 +220,8 @@ export const Dashboard: React.FC = () => {
                   setActiveProcesso(p);
                 }}
                 className={`w-full text-left p-5 rounded-3xl border transition-all flex items-center justify-between
-                  ${activeProcesso?.id === p.id 
-                    ? 'bg-white border-[#5A5A40] shadow-md' 
+                  ${activeProcesso?.id === p.id
+                    ? 'bg-white border-[#5A5A40] shadow-md'
                     : 'bg-white/50 border-transparent hover:bg-white hover:border-gray-200'}`}
               >
                 <div className="flex items-center gap-4">
@@ -219,7 +230,7 @@ export const Dashboard: React.FC = () => {
                     <FileText size={20} />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="font-medium text-[#1a1a1a] truncate">{p.numero_processo}</p>
+                    <p className="font-medium text-[#1a1a1a] truncate">{formatProcessNumber(p.numero_processo || '')}</p>
                     <p className="text-xs text-gray-500 truncate">{p.cliente}</p>
                   </div>
                 </div>
@@ -255,29 +266,29 @@ export const Dashboard: React.FC = () => {
                   <Clock size={14} />
                   <span>Processo em Aberto</span>
                 </div>
-                <h1 className="text-xl md:text-3xl font-sans font-semibold text-[#1a1a1a] mb-1 break-all md:break-normal">{activeProcesso.numero_processo}</h1>
+                <h1 className="text-xl md:text-3xl font-sans font-semibold text-[#1a1a1a] mb-1 break-all md:break-normal">{formatProcessNumber(activeProcesso.numero_processo || '')}</h1>
                 <p className="text-gray-500 break-words">Cliente: {activeProcesso.cliente}</p>
               </div>
 
               {analysisResult ? (
-                <AnalysisReport 
-                  result={analysisResult} 
+                <AnalysisReport
+                  result={analysisResult}
                   onReset={() => {
                     setAnalysisResult(null);
                     setAnalysisUrls({});
-                  }} 
+                  }}
                   videoUrl={analysisUrls.video}
                   pdfUrl={analysisUrls.pdf}
-                  processNumber={activeProcesso.numero_processo}
+                  processNumber={formatProcessNumber(activeProcesso.numero_processo || '')}
                   clientName={activeProcesso.cliente}
                 />
               ) : (
-                <UploadAnalysis 
-                  processoId={activeProcesso.id} 
+                <UploadAnalysis
+                  processoId={activeProcesso.id}
                   onAnalysisComplete={(result, video, pdf) => {
                     setAnalysisResult(result);
                     setAnalysisUrls({ video, pdf });
-                  }} 
+                  }}
                 />
               )}
             </div>
@@ -297,7 +308,7 @@ export const Dashboard: React.FC = () => {
       <AnimatePresence>
         {processToDelete && (
           <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <motion.div 
+            <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
@@ -310,7 +321,7 @@ export const Dashboard: React.FC = () => {
               <p className="text-gray-500 mb-8">
                 Esta ação é permanente. Todos os dados, análises, vídeos e PDFs associados ao processo <span className="font-bold text-[#1a1a1a]">{processToDelete.numero_processo}</span> serão removidos definitivamente do servidor.
               </p>
-              
+
               <div className="flex gap-3">
                 <button
                   disabled={isDeleting}
@@ -345,7 +356,7 @@ export const Dashboard: React.FC = () => {
       {/* New Processo Modal */}
       {showNewProcessoModal && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             className="bg-white rounded-[32px] shadow-2xl p-8 max-w-md w-full"
@@ -357,7 +368,7 @@ export const Dashboard: React.FC = () => {
                 <input
                   type="text"
                   value={numero}
-                  onChange={(e) => setNumero(e.target.value)}
+                  onChange={(e) => setNumero(formatProcessNumber(e.target.value))}
                   className="w-full bg-gray-50 border border-gray-100 rounded-2xl py-3 px-4 focus:outline-none focus:ring-2 focus:ring-[#5A5A40]/20 focus:border-[#5A5A40] transition-all"
                   placeholder="0000000-00.2024.8.26.0000"
                   required

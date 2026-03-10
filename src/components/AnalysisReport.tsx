@@ -72,9 +72,22 @@ export const AnalysisReport: React.FC<AnalysisReportProps> = ({
       img.src = dataUrl;
       await new Promise((resolve) => (img.onload = resolve));
       
-      const pdfHeight = (img.height * pdfWidth) / img.width;
+      const pageHeight = pdf.internal.pageSize.getHeight();
+      
+      const imgHeight = (img.height * pdfWidth) / img.width;
+      let heightLeft = imgHeight;
+      let position = 0;
 
-      pdf.addImage(dataUrl, 'PNG', 0, 0, pdfWidth, pdfHeight);
+      pdf.addImage(dataUrl, 'PNG', 0, position, pdfWidth, imgHeight);
+      heightLeft -= pageHeight;
+
+      while (heightLeft >= 0) {
+        position = heightLeft - imgHeight;
+        pdf.addPage();
+        pdf.addImage(dataUrl, 'PNG', 0, position, pdfWidth, imgHeight);
+        heightLeft -= pageHeight;
+      }
+
       return pdf.output('blob');
     } catch (error) {
       console.error('Erro ao gerar PDF:', error);
