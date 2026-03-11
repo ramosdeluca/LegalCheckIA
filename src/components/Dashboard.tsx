@@ -156,21 +156,21 @@ export const Dashboard: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#f5f2ed]">
+      <div className="min-h-screen flex items-center justify-center bg-[#f0ede6]">
         <Loader2 className="animate-spin text-[#5A5A40]" size={40} />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#f5f2ed] font-sans">
+    <div className="min-h-screen bg-[#f0ede6] font-sans selection:bg-[#5A5A40]/20">
       {/* Sidebar / Header */}
-      <nav className="bg-white border-b border-black/5 px-8 py-4 flex items-center justify-between sticky top-0 z-10 shadow-sm">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-[#5A5A40] rounded-xl flex items-center justify-center text-white">
-            <Briefcase size={20} />
+      <nav className="bg-white/80 backdrop-blur-xl border-b border-black/5 px-8 py-5 flex items-center justify-between sticky top-0 z-20 shadow-sm">
+        <div className="flex items-center gap-4">
+          <div className="w-11 h-11 bg-gradient-to-br from-[#5A5A40] to-[#3A3A20] rounded-xl flex items-center justify-center text-white shadow-lg shadow-[#5A5A40]/20">
+            <Briefcase size={22} />
           </div>
-          <h1 className="text-xl font-serif text-[#1a1a1a]">LegalCheck IA</h1>
+          <h1 className="text-2xl font-serif text-[#1a1a1a] tracking-tight">LegalCheck IA</h1>
         </div>
 
         <div className="flex items-center gap-6">
@@ -215,18 +215,18 @@ export const Dashboard: React.FC = () => {
             {filteredProcessos.map((p) => (
               <motion.button
                 key={p.id}
-                whileHover={{ x: 4 }}
+                whileHover={{ x: 6 }}
                 onClick={() => {
                   setActiveProcesso(p);
                 }}
-                className={`w-full text-left p-5 rounded-3xl border transition-all flex items-center justify-between
+                className={`w-full text-left p-5 rounded-[24px] border transition-all duration-300 flex items-center justify-between group
                   ${activeProcesso?.id === p.id
-                    ? 'bg-white border-[#5A5A40] shadow-md'
-                    : 'bg-white/50 border-transparent hover:bg-white hover:border-gray-200'}`}
+                    ? 'bg-white border-[#5A5A40]/30 shadow-lg shadow-[#5A5A40]/5'
+                    : 'bg-white/40 backdrop-blur-sm border-transparent hover:bg-white/80 hover:border-black/5 hover:shadow-md'}`}
               >
                 <div className="flex items-center gap-4">
-                  <div className={`w-12 h-12 rounded-2xl flex items-center justify-center
-                    ${activeProcesso?.id === p.id ? 'bg-[#5A5A40] text-white' : 'bg-gray-100 text-gray-400'}`}>
+                  <div className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-colors
+                    ${activeProcesso?.id === p.id ? 'bg-[#5A5A40] text-white shadow-md' : 'bg-white/80 text-gray-400 group-hover:text-[#5A5A40] shadow-sm'}`}>
                     <FileText size={20} />
                   </div>
                   <div className="min-w-0 flex-1">
@@ -260,14 +260,18 @@ export const Dashboard: React.FC = () => {
         {/* Right Column: Active Content */}
         <div className="lg:col-span-8">
           {activeProcesso ? (
-            <div className="space-y-8">
-              <div className="bg-white rounded-3xl p-8 shadow-sm border border-black/5">
-                <div className="flex items-center gap-2 text-xs text-[#5A5A40] font-semibold uppercase tracking-widest mb-2">
-                  <Clock size={14} />
-                  <span>Processo em Aberto</span>
+            <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <div className="relative bg-white/60 backdrop-blur-md rounded-[32px] p-8 shadow-sm border border-white overflow-hidden">
+                <div className="absolute top-0 right-0 w-64 h-64 bg-[#5A5A40]/5 rounded-bl-full pointer-events-none" />
+
+                <div className="relative z-10">
+                  <div className="flex items-center gap-2 text-xs text-[#5A5A40] font-bold uppercase tracking-widest mb-3">
+                    <Clock size={14} />
+                    <span>Processo em Aberto</span>
+                  </div>
+                  <h1 className="text-2xl md:text-4xl font-sans font-semibold text-[#1a1a1a] mb-2 break-all md:break-normal tracking-tight">{formatProcessNumber(activeProcesso.numero_processo || '')}</h1>
+                  <p className="text-gray-600 font-medium break-words">Cliente: {activeProcesso.cliente}</p>
                 </div>
-                <h1 className="text-xl md:text-3xl font-sans font-semibold text-[#1a1a1a] mb-1 break-all md:break-normal">{formatProcessNumber(activeProcesso.numero_processo || '')}</h1>
-                <p className="text-gray-500 break-words">Cliente: {activeProcesso.cliente}</p>
               </div>
 
               {analysisResult ? (

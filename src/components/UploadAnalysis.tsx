@@ -148,42 +148,46 @@ export const UploadAnalysis: React.FC<UploadAnalysisProps> = ({ processoId, onAn
   };
 
   return (
-    <div className="bg-white rounded-3xl shadow-sm border border-black/5 p-8">
-      <div className="mb-8">
-        <h2 className="text-2xl font-serif text-[#1a1a1a] mb-2">Upload de Provas</h2>
-        <p className="text-gray-500">Suba o vídeo da audiência e o PDF do processo para iniciar a análise.</p>
+    <div className="relative bg-white/40 backdrop-blur-3xl rounded-[40px] shadow-2xl border border-white/60 p-10 overflow-hidden">
+      {/* Decorative gradient blob */}
+      <div className="absolute -top-40 -right-40 w-96 h-96 bg-[#5A5A40]/5 rounded-full blur-3xl pointer-events-none" />
+      <div className="absolute -bottom-40 -left-40 w-96 h-96 bg-[#5A5A40]/5 rounded-full blur-3xl pointer-events-none" />
+
+      <div className="relative mb-8 text-center">
+        <h2 className="text-3xl font-serif text-[#1a1a1a] mb-3 tracking-tight">Upload de Provas</h2>
+        <p className="text-gray-500 font-medium">Suba a mídia da audiência e o PDF do processo para iniciar a análise.</p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+      <div className="relative grid grid-cols-1 md:grid-cols-2 gap-6 mb-10">
         {/* Media Upload */}
         <div
-          className={`relative border-2 border-dashed rounded-3xl p-8 transition-all flex flex-col items-center justify-center gap-4 cursor-pointer
-            ${videoFile ? 'border-[#5A5A40] bg-[#5A5A40]/5' : 'border-gray-200 hover:border-[#5A5A40]/50'}`}
+          className={`group relative border-2 border-dashed rounded-[32px] p-10 transition-all duration-300 flex flex-col items-center justify-center gap-5 cursor-pointer overflow-hidden
+            ${videoFile ? 'border-[#5A5A40] bg-[#5A5A40]/5 shadow-inner' : 'border-gray-300/80 hover:border-[#5A5A40]/50 hover:bg-white/50 hover:shadow-xl hover:-translate-y-1'}`}
         >
           <input
             type="file"
             accept="video/*,audio/*"
-            className="absolute inset-0 opacity-0 cursor-pointer"
+            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20"
             onChange={(e) => setVideoFile(e.target.files?.[0] || null)}
           />
           {videoFile ? (
             <>
-              <div className="w-16 h-16 bg-[#5A5A40] text-white rounded-full flex items-center justify-center">
-                {videoFile.type.startsWith('video') ? <FileVideo size={32} /> : <Play size={32} />}
+              <div className="w-20 h-20 bg-gradient-to-br from-[#5A5A40] to-[#3A3A20] text-white rounded-[24px] flex items-center justify-center shadow-lg shadow-[#5A5A40]/20 transform transition-transform group-hover:scale-105">
+                {videoFile.type.startsWith('video') ? <FileVideo size={36} /> : <Play size={36} />}
               </div>
-              <div className="text-center">
-                <p className="font-medium text-[#1a1a1a] truncate max-w-[200px]">{videoFile.name}</p>
-                <p className="text-xs text-gray-500">{videoFile.type.startsWith('video') ? 'Vídeo' : 'Áudio'} selecionado</p>
+              <div className="text-center z-10">
+                <p className="font-semibold text-[#1a1a1a] truncate max-w-[200px] text-lg">{videoFile.name}</p>
+                <p className="text-sm font-medium text-[#5A5A40] mt-1">{videoFile.type.startsWith('video') ? 'Vídeo' : 'Áudio'} selecionado</p>
               </div>
             </>
           ) : (
             <>
-              <div className="w-16 h-16 bg-gray-100 text-gray-400 rounded-full flex items-center justify-center">
-                <Upload size={32} />
+              <div className="relative z-10 w-20 h-20 bg-white text-gray-400 rounded-[24px] flex items-center justify-center shadow-sm border border-gray-100 transform transition-all group-hover:scale-110 group-hover:rotate-3 group-hover:text-[#5A5A40]">
+                <Upload size={36} />
               </div>
-              <div className="text-center">
-                <p className="font-medium text-[#1a1a1a]">Mídia da Audiência</p>
-                <p className="text-xs text-gray-500">Vídeo ou Áudio (Arraste ou clique)</p>
+              <div className="text-center relative z-10">
+                <p className="font-semibold text-[#1a1a1a] text-lg mb-1">Mídia da Audiência</p>
+                <p className="text-sm font-medium text-gray-500">Vídeo ou Áudio (Arraste ou clique)</p>
               </div>
             </>
           )}
@@ -191,33 +195,33 @@ export const UploadAnalysis: React.FC<UploadAnalysisProps> = ({ processoId, onAn
 
         {/* PDF Upload */}
         <div
-          className={`relative border-2 border-dashed rounded-3xl p-8 transition-all flex flex-col items-center justify-center gap-4 cursor-pointer
-            ${pdfFile ? 'border-[#5A5A40] bg-[#5A5A40]/5' : 'border-gray-200 hover:border-[#5A5A40]/50'}`}
+          className={`group relative border-2 border-dashed rounded-[32px] p-10 transition-all duration-300 flex flex-col items-center justify-center gap-5 cursor-pointer overflow-hidden
+            ${pdfFile ? 'border-[#5A5A40] bg-[#5A5A40]/5 shadow-inner' : 'border-gray-300/80 hover:border-[#5A5A40]/50 hover:bg-white/50 hover:shadow-xl hover:-translate-y-1'}`}
         >
           <input
             type="file"
             accept="application/pdf"
-            className="absolute inset-0 opacity-0 cursor-pointer"
+            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20"
             onChange={(e) => setPdfFile(e.target.files?.[0] || null)}
           />
           {pdfFile ? (
             <>
-              <div className="w-16 h-16 bg-[#5A5A40] text-white rounded-full flex items-center justify-center">
-                <FileText size={32} />
+              <div className="w-20 h-20 bg-gradient-to-br from-[#5A5A40] to-[#3A3A20] text-white rounded-[24px] flex items-center justify-center shadow-lg shadow-[#5A5A40]/20 transform transition-transform group-hover:scale-105">
+                <FileText size={36} />
               </div>
-              <div className="text-center">
-                <p className="font-medium text-[#1a1a1a] truncate max-w-[200px]">{pdfFile.name}</p>
-                <p className="text-xs text-gray-500">PDF selecionado</p>
+              <div className="text-center z-10">
+                <p className="font-semibold text-[#1a1a1a] truncate max-w-[200px] text-lg">{pdfFile.name}</p>
+                <p className="text-sm font-medium text-[#5A5A40] mt-1">PDF selecionado</p>
               </div>
             </>
           ) : (
             <>
-              <div className="w-16 h-16 bg-gray-100 text-gray-400 rounded-full flex items-center justify-center">
-                <Upload size={32} />
+              <div className="relative z-10 w-20 h-20 bg-white text-gray-400 rounded-[24px] flex items-center justify-center shadow-sm border border-gray-100 transform transition-all group-hover:scale-110 group-hover:-rotate-3 group-hover:text-[#5A5A40]">
+                <Upload size={36} />
               </div>
-              <div className="text-center">
-                <p className="font-medium text-[#1a1a1a]">PDF do Processo</p>
-                <p className="text-xs text-gray-500">Arraste ou clique para subir</p>
+              <div className="text-center relative z-10">
+                <p className="font-semibold text-[#1a1a1a] text-lg mb-1">PDF do Processo</p>
+                <p className="text-sm font-medium text-gray-500">Arraste ou clique para subir</p>
               </div>
             </>
           )}
@@ -234,17 +238,20 @@ export const UploadAnalysis: React.FC<UploadAnalysisProps> = ({ processoId, onAn
       <button
         onClick={handleStartAnalysis}
         disabled={!videoFile || !pdfFile || isAnalyzing}
-        className="w-full bg-[#5A5A40] text-white rounded-2xl py-5 font-medium hover:bg-[#4a4a35] transition-all flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed shadow-xl shadow-[#5A5A40]/20"
+        className="w-full relative overflow-hidden bg-[#5A5A40] text-white rounded-[24px] py-5 font-semibold text-lg hover:bg-[#4a4a35] transition-all flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed shadow-xl shadow-[#5A5A40]/30 transform active:scale-[0.98]"
       >
+        {isAnalyzing && (
+          <div className="absolute inset-0 bg-white/20 animate-pulse pointer-events-none" />
+        )}
         {isAnalyzing ? (
           <>
-            <Loader2 className="animate-spin" size={24} />
-            <span>{progress}</span>
+            <Loader2 className="animate-spin text-white/80" size={26} />
+            <span className="relative z-10">{progress}</span>
           </>
         ) : (
           <>
-            <Play size={24} />
-            <span>Iniciar Análise Jurídica</span>
+            <Play size={26} className="fill-current" />
+            <span className="relative z-10 tracking-wide">Iniciar Análise Jurídica Exaustiva</span>
           </>
         )}
       </button>
