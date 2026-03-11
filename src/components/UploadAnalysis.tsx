@@ -5,6 +5,7 @@ import * as pdfjsLib from 'pdfjs-dist';
 import { analyzeHearing } from '../services/geminiService';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../AuthContext';
+import { extractAudioFromVideo } from '../utils/audioExtractor';
 
 // Set up PDF.js worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
@@ -90,15 +91,17 @@ export const UploadAnalysis: React.FC<UploadAnalysisProps> = ({ processoId, onAn
         await supabase.from('analises').delete().eq('processo_id', processoId);
       }
 
+      setProgress('Extraindo áudio do vídeo para análise...');
+      const mediaToUpload = await extractAudioFromVideo(videoFile);
+
       setProgress('Subindo arquivos para o servidor seguro...');
 
       // 1. Upload Media (Video or Audio) to Supabase Storage
-      const mediaExt = videoFile.name.split('.').pop();
-      const mediaType = videoFile.type.startsWith('video') ? 'video' : 'audio';
-      const mediaPath = `${user.id}/${Date.now()}_${mediaType}.${mediaExt}`;
+      const mediaExt = mediaToUpload.name.split('.').pop();
+      const mediaPath = `${user.id}/${Date.now()}_audio.${mediaExt}`;
       const { data: mediaData, error: mediaError } = await supabase.storage
         .from('legalcheck')
-        .upload(mediaPath, videoFile);
+        .upload(mediaPath, mediaToUpload);
 
       if (mediaError) throw new Error(`Erro no upload da mídia: ${mediaError.message}`);
 
@@ -116,12 +119,12 @@ export const UploadAnalysis: React.FC<UploadAnalysisProps> = ({ processoId, onAn
 
       setProgress('Extraindo texto do PDF...');
       const pdfText = await extractTextFromPdf(pdfFile);
-      
+
       setProgress('Preparando mídia para análise (isso pode levar alguns minutos)...');
-      const mediaBase64 = await fileToBase64(videoFile);
+      const mediaBase64 = await fileToBase64(mediaToUpload);
 
       setProgress('IA analisando audiência e buscando contradições...');
-      const result = await analyzeHearing(mediaBase64, pdfText, videoFile.type);
+      const result = await analyzeHearing(mediaBase64, pdfText, mediaToUpload.type);
 
       // Save analysis to Supabase
       const { error: dbError } = await supabase.from('analises').insert({
@@ -153,13 +156,13 @@ export const UploadAnalysis: React.FC<UploadAnalysisProps> = ({ processoId, onAn
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
         {/* Media Upload */}
-        <div 
+        <div
           className={`relative border-2 border-dashed rounded-3xl p-8 transition-all flex flex-col items-center justify-center gap-4 cursor-pointer
             ${videoFile ? 'border-[#5A5A40] bg-[#5A5A40]/5' : 'border-gray-200 hover:border-[#5A5A40]/50'}`}
         >
-          <input 
-            type="file" 
-            accept="video/*,audio/*" 
+          <input
+            type="file"
+            accept="video/*,audio/*"
             className="absolute inset-0 opacity-0 cursor-pointer"
             onChange={(e) => setVideoFile(e.target.files?.[0] || null)}
           />
@@ -187,13 +190,13 @@ export const UploadAnalysis: React.FC<UploadAnalysisProps> = ({ processoId, onAn
         </div>
 
         {/* PDF Upload */}
-        <div 
+        <div
           className={`relative border-2 border-dashed rounded-3xl p-8 transition-all flex flex-col items-center justify-center gap-4 cursor-pointer
             ${pdfFile ? 'border-[#5A5A40] bg-[#5A5A40]/5' : 'border-gray-200 hover:border-[#5A5A40]/50'}`}
         >
-          <input 
-            type="file" 
-            accept="application/pdf" 
+          <input
+            type="file"
+            accept="application/pdf"
             className="absolute inset-0 opacity-0 cursor-pointer"
             onChange={(e) => setPdfFile(e.target.files?.[0] || null)}
           />
@@ -248,7 +251,7 @@ export const UploadAnalysis: React.FC<UploadAnalysisProps> = ({ processoId, onAn
 
       <AnimatePresence>
         {isAnalyzing && (
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: 'auto' }}
             exit={{ opacity: 0, height: 0 }}
@@ -256,7 +259,7 @@ export const UploadAnalysis: React.FC<UploadAnalysisProps> = ({ processoId, onAn
           >
             <div className="flex items-center gap-4 mb-4">
               <div className="flex-1 h-2 bg-gray-200 rounded-full overflow-hidden">
-                <motion.div 
+                <motion.div
                   className="h-full bg-[#5A5A40]"
                   animate={{ x: ['-100%', '100%'] }}
                   transition={{ repeat: Infinity, duration: 2, ease: "linear" }}

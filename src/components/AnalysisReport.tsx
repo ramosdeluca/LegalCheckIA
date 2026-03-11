@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { AlertTriangle, Clock, FileText, ArrowLeft, ShieldAlert, ShieldCheck, Info, FileVideo, Download, Share2, Briefcase } from 'lucide-react';
+import { AlertTriangle, Clock, FileText, ArrowLeft, ShieldAlert, ShieldCheck, Info, Volume2, Download, Share2, Briefcase } from 'lucide-react';
 import { motion } from 'motion/react';
 import jsPDF from 'jspdf';
 import { domToPng } from 'modern-screenshot';
@@ -22,13 +22,13 @@ interface AnalysisReportProps {
   clientName?: string;
 }
 
-export const AnalysisReport: React.FC<AnalysisReportProps> = ({ 
-  result, 
-  onReset, 
-  videoUrl, 
+export const AnalysisReport: React.FC<AnalysisReportProps> = ({
+  result,
+  onReset,
+  videoUrl,
   pdfUrl,
   processNumber,
-  clientName 
+  clientName
 }) => {
   const reportRef = useRef<HTMLDivElement>(null);
   const [isExporting, setIsExporting] = useState(false);
@@ -55,7 +55,7 @@ export const AnalysisReport: React.FC<AnalysisReportProps> = ({
 
   const generatePDFBlob = async (): Promise<Blob | null> => {
     if (!reportRef.current) return null;
-    
+
     try {
       // modern-screenshot is much better at handling modern CSS like oklch/oklab
       const dataUrl = await domToPng(reportRef.current, {
@@ -66,14 +66,14 @@ export const AnalysisReport: React.FC<AnalysisReportProps> = ({
 
       const pdf = new jsPDF('p', 'mm', 'a4');
       const pdfWidth = pdf.internal.pageSize.getWidth();
-      
+
       // Create an image to get dimensions
       const img = new Image();
       img.src = dataUrl;
       await new Promise((resolve) => (img.onload = resolve));
-      
+
       const pageHeight = pdf.internal.pageSize.getHeight();
-      
+
       const imgHeight = (img.height * pdfWidth) / img.width;
       let heightLeft = imgHeight;
       let position = 0;
@@ -113,10 +113,10 @@ export const AnalysisReport: React.FC<AnalysisReportProps> = ({
 
   const handleShare = async () => {
     setIsSharing(true);
-    
+
     const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
     const shareText = `Relatório de Contradições Jurídicas\nProcesso: ${processNumber}\nCliente: ${clientName}\n\nConfira os detalhes no LegalCheck.`;
-    
+
     // Generate the PDF first so it's ready for either flow
     const blob = await generatePDFBlob();
     if (!blob) {
@@ -129,7 +129,7 @@ export const AnalysisReport: React.FC<AnalysisReportProps> = ({
     if (isMobile && navigator.share) {
       try {
         const file = new File([blob], `Relatorio_Contradicoes_${processNumber || 'Analise'}.pdf`, { type: 'application/pdf' });
-        
+
         if (navigator.canShare && navigator.canShare({ files: [file] })) {
           await navigator.share({
             title: 'Relatório de Contradições',
@@ -139,7 +139,7 @@ export const AnalysisReport: React.FC<AnalysisReportProps> = ({
           setIsSharing(false);
           return;
         }
-        
+
         // Fallback to text-only native share on mobile
         await navigator.share({
           title: 'Relatório de Contradições',
@@ -168,25 +168,25 @@ export const AnalysisReport: React.FC<AnalysisReportProps> = ({
 
     // 2. Open WhatsApp Web
     handleWhatsAppShare();
-    
+
     // 3. Inform the user
     alert('O PDF foi baixado automaticamente. Agora, basta anexá-lo na conversa do WhatsApp que abriu!');
-    
+
     setIsSharing(false);
   };
 
   const handleWhatsAppShare = () => {
     const text = `Relatório de Contradições Jurídicas\nProcesso: ${processNumber}\nCliente: ${clientName}\n\nConfira os detalhes no LegalCheck.`;
-    
+
     const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-    
+
     // Force web.whatsapp.com for desktop to avoid the "app picker" screen
-    const whatsappUrl = isMobile 
+    const whatsappUrl = isMobile
       ? `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`
       : `https://web.whatsapp.com/send?text=${encodeURIComponent(text)}`;
-    
+
     const newWindow = window.open(whatsappUrl, '_blank');
-    
+
     if (!newWindow || newWindow.closed || typeof newWindow.closed === 'undefined') {
       alert('O compartilhamento foi bloqueado pelo navegador. Por favor, permita pop-ups para este site.');
     }
@@ -200,7 +200,7 @@ export const AnalysisReport: React.FC<AnalysisReportProps> = ({
             <div className="flex items-center gap-3 px-4 py-2 bg-white rounded-full border border-gray-100 shadow-sm">
               {videoUrl && (
                 <a href={videoUrl} target="_blank" rel="noopener noreferrer" className="text-[10px] font-bold uppercase tracking-widest text-[#5A5A40] hover:text-[#4A4A30] flex items-center gap-1.5 transition-colors">
-                  <FileVideo size={14} /> Vídeo
+                  <Volume2 size={14} /> Áudio do Vídeo
                 </a>
               )}
               {videoUrl && pdfUrl && <div className="w-px h-3 bg-gray-200" />}
@@ -211,9 +211,9 @@ export const AnalysisReport: React.FC<AnalysisReportProps> = ({
               )}
             </div>
           )}
-          
+
           <div className="flex items-center gap-2">
-            <button 
+            <button
               onClick={handleExportPDF}
               disabled={isExporting || isSharing}
               className="flex items-center gap-2 px-5 py-2.5 bg-[#5A5A40] text-white rounded-full text-[10px] font-bold uppercase tracking-widest hover:bg-[#4A4A30] transition-all disabled:opacity-50 shadow-md shadow-[#5A5A40]/10 active:scale-95"
@@ -221,8 +221,8 @@ export const AnalysisReport: React.FC<AnalysisReportProps> = ({
               <Download size={14} />
               {isExporting ? 'Gerando...' : 'Exportar PDF'}
             </button>
-            
-            <button 
+
+            <button
               onClick={handleShare}
               disabled={isExporting || isSharing}
               className="flex items-center gap-2 px-5 py-2.5 bg-white border border-gray-200 text-[#5A5A40] rounded-full text-[10px] font-bold uppercase tracking-widest hover:bg-gray-50 transition-all disabled:opacity-50 shadow-sm active:scale-95"
@@ -233,7 +233,7 @@ export const AnalysisReport: React.FC<AnalysisReportProps> = ({
           </div>
         </div>
 
-        <button 
+        <button
           onClick={onReset}
           className="flex items-center gap-2 px-4 py-2 text-[10px] font-bold uppercase tracking-widest text-gray-400 hover:text-[#5A5A40] transition-all hover:bg-white rounded-full active:scale-95"
         >
@@ -254,7 +254,7 @@ export const AnalysisReport: React.FC<AnalysisReportProps> = ({
               <p className="text-[10px] text-gray-400 uppercase tracking-widest font-bold">LegalCheck IA • Documento Oficial</p>
             </div>
           </div>
-          
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8 pt-6 border-t border-gray-100">
             <div>
               <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Número do Processo</p>

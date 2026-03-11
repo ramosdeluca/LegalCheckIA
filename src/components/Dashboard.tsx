@@ -319,7 +319,7 @@ export const Dashboard: React.FC = () => {
               </div>
               <h2 className="text-2xl font-serif text-[#1a1a1a] mb-2">Excluir Processo?</h2>
               <p className="text-gray-500 mb-8">
-                Esta ação é permanente. Todos os dados, análises, vídeos e PDFs associados ao processo <span className="font-bold text-[#1a1a1a]">{processToDelete.numero_processo}</span> serão removidos definitivamente do servidor.
+                Esta ação é permanente. Todos os dados, análises, áudios e PDFs associados ao processo <span className="font-bold text-[#1a1a1a]">{processToDelete.numero_processo}</span> serão removidos definitivamente do servidor.
               </p>
 
               <div className="flex gap-3">
