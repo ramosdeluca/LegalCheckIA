@@ -17,8 +17,8 @@ interface UploadAnalysisProps {
 
 export const UploadAnalysis: React.FC<UploadAnalysisProps> = ({ processoId, onAnalysisStarted }) => {
   const { user } = useAuth();
-  const [videoFile, setVideoFile] = useState<File | null>(null);
-  const [pdfFile, setPdfFile] = useState<File | null>(null);
+  const [videoFiles, setVideoFiles] = useState<File[]>([]);
+  const [pdfFiles, setPdfFiles] = useState<File[]>([]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [progress, setProgress] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -55,24 +55,24 @@ export const UploadAnalysis: React.FC<UploadAnalysisProps> = ({ processoId, onAn
   };
 
   const handleStartAnalysis = async () => {
-    if (!videoFile || !pdfFile) return;
+    if (videoFiles.length === 0 || pdfFiles.length === 0) return;
     if (!user) return;
 
     setIsAnalyzing(true);
     setError(null);
-    setProgress('Subindo arquivos para o servidor seguro...');
+    setProgress('Limpando análises anteriores...');
 
     try {
-      // 0. Cleanup old analysis for this process to save space and keep only the latest
-      setProgress('Limpando análises anteriores...');
+      // 0. Cleanup old analysis for this process
       const { data: oldAnalises } = await supabase
         .from('analises')
-        .select('id, video_url, pdf_url')
+        .select('id, video_url, pdf_url, video_urls, pdf_urls')
         .eq('processo_id', processoId);
 
       if (oldAnalises && oldAnalises.length > 0) {
         const filesToDelete: string[] = [];
         oldAnalises.forEach(a => {
+          // Legacy check
           if (a.video_url) {
             const path = a.video_url.split('/storage/v1/object/public/legalcheck/')[1];
             if (path) filesToDelete.push(path);
@@ -81,60 +81,75 @@ export const UploadAnalysis: React.FC<UploadAnalysisProps> = ({ processoId, onAn
             const path = a.pdf_url.split('/storage/v1/object/public/legalcheck/')[1];
             if (path) filesToDelete.push(path);
           }
+          // New format check
+          if (a.video_urls && Array.isArray(a.video_urls)) {
+            a.video_urls.forEach((url: string) => {
+              const path = url.split('/storage/v1/object/public/legalcheck/')[1];
+              if (path) filesToDelete.push(path);
+            });
+          }
+          if (a.pdf_urls && Array.isArray(a.pdf_urls)) {
+            a.pdf_urls.forEach((url: string) => {
+              const path = url.split('/storage/v1/object/public/legalcheck/')[1];
+              if (path) filesToDelete.push(path);
+            });
+          }
         });
 
         if (filesToDelete.length > 0) {
           await supabase.storage.from('legalcheck').remove(filesToDelete);
         }
-
-        // Delete old records
         await supabase.from('analises').delete().eq('processo_id', processoId);
       }
 
-      setProgress('Extraindo áudio do vídeo para análise...');
-      const mediaToUpload = await extractAudioFromVideo(videoFile);
+      const mediaUrls: string[] = [];
+      const pdfUrls: string[] = [];
 
-      setProgress('Subindo arquivos para o servidor seguro...');
+      // 1. Process and Upload Videos/Audios
+      for (let i = 0; i < videoFiles.length; i++) {
+        const file = videoFiles[i];
+        setProgress(`Processando mídia ${i + 1}/${videoFiles.length}...`);
+        const mediaToUpload = await extractAudioFromVideo(file);
 
-      // 1. Upload Media (Video or Audio) to Supabase Storage
-      const mediaExt = mediaToUpload.name.split('.').pop();
-      const mediaPath = `${user.id}/${Date.now()}_audio.${mediaExt}`;
-      const { data: mediaData, error: mediaError } = await supabase.storage
-        .from('legalcheck')
-        .upload(mediaPath, mediaToUpload);
+        const mediaExt = mediaToUpload.name.split('.').pop();
+        const mediaPath = `${user.id}/${Date.now()}_audio_${i}.${mediaExt}`;
+        const { error: mError } = await supabase.storage.from('legalcheck').upload(mediaPath, mediaToUpload);
+        if (mError) throw mError;
 
-      if (mediaError) throw new Error(`Erro no upload da mídia: ${mediaError.message}`);
+        const { data: { publicUrl } } = supabase.storage.from('legalcheck').getPublicUrl(mediaPath);
+        mediaUrls.push(publicUrl);
+      }
 
-      // 2. Upload PDF to Supabase Storage
-      const pdfPath = `${user.id}/${Date.now()}_processo.pdf`;
-      const { data: pdfData, error: pdfError } = await supabase.storage
-        .from('legalcheck')
-        .upload(pdfPath, pdfFile);
+      // 2. Upload PDFs
+      for (let i = 0; i < pdfFiles.length; i++) {
+        const file = pdfFiles[i];
+        setProgress(`Subindo PDF ${i + 1}/${pdfFiles.length}...`);
+        const pdfPath = `${user.id}/${Date.now()}_processo_${i}.pdf`;
+        const { error: pError } = await supabase.storage.from('legalcheck').upload(pdfPath, file);
+        if (pError) throw pError;
 
-      if (pdfError) throw new Error(`Erro no upload do PDF: ${pdfError.message}`);
+        const { data: { publicUrl } } = supabase.storage.from('legalcheck').getPublicUrl(pdfPath);
+        pdfUrls.push(publicUrl);
+      }
 
-      // Get Public URLs
-      const { data: { publicUrl: mediaUrl } } = supabase.storage.from('legalcheck').getPublicUrl(mediaPath);
-      const { data: { publicUrl: pdfUrl } } = supabase.storage.from('legalcheck').getPublicUrl(pdfPath);
-
-      // Save analysis to Supabase with status 'processando'
+      // 3. Save to DB
       const { error: dbError } = await supabase.from('analises').insert({
         processo_id: processoId,
         user_id: user.id,
         status: 'processando',
         resultado_json: null,
-        video_url: mediaUrl,
-        pdf_url: pdfUrl
+        video_url: mediaUrls[0], // backward compatibility
+        pdf_url: pdfUrls[0], // backward compatibility
+        video_urls: mediaUrls,
+        pdf_urls: pdfUrls
       });
 
       if (dbError) throw dbError;
 
-      // Chama a função server-side background "Fire-and-forget"
       supabase.functions.invoke('analisar-audiencia', {
         body: { processoId: processoId }
       }).catch(console.error);
 
-      // Informa o Dashboard que iniciou
       onAnalysisStarted();
     } catch (err: any) {
       console.error(err);
@@ -157,71 +172,89 @@ export const UploadAnalysis: React.FC<UploadAnalysisProps> = ({ processoId, onAn
 
       <div className="relative grid grid-cols-1 md:grid-cols-2 gap-6 mb-10">
         {/* Media Upload */}
-        <div
-          className={`group relative border-2 border-dashed rounded-[32px] p-10 transition-all duration-300 flex flex-col items-center justify-center gap-5 cursor-pointer overflow-hidden
-            ${videoFile ? 'border-[#5A5A40] bg-[#5A5A40]/5 shadow-inner' : 'border-gray-300/80 hover:border-[#5A5A40]/50 hover:bg-white/50 hover:shadow-xl hover:-translate-y-1'}`}
-        >
-          <input
-            type="file"
-            accept="video/*,audio/*"
-            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20"
-            onChange={(e) => setVideoFile(e.target.files?.[0] || null)}
-          />
-          {videoFile ? (
-            <>
-              <div className="w-20 h-20 bg-gradient-to-br from-[#5A5A40] to-[#3A3A20] text-white rounded-[24px] flex items-center justify-center shadow-lg shadow-[#5A5A40]/20 transform transition-transform group-hover:scale-105">
-                {videoFile.type.startsWith('video') ? <FileVideo size={36} /> : <Play size={36} />}
+        <div className="space-y-4">
+          <div
+            className={`group relative border-2 border-dashed rounded-[32px] p-8 transition-all duration-300 flex flex-col items-center justify-center gap-4 cursor-pointer overflow-hidden
+              ${videoFiles.length > 0 ? 'border-[#5A5A40] bg-[#5A5A40]/5' : 'border-gray-300/80 hover:border-[#5A5A40]/50 hover:bg-white/50'}`}
+          >
+            <input
+              type="file"
+              multiple
+              accept="video/*,audio/*"
+              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20"
+              onChange={(e) => {
+                const files = Array.from(e.target.files || []);
+                setVideoFiles(prev => [...prev, ...files]);
+              }}
+            />
+            <div className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-all ${videoFiles.length > 0 ? 'bg-[#5A5A40] text-white' : 'bg-white text-gray-400 group-hover:text-[#5A5A40]'}`}>
+              <Upload size={28} />
+            </div>
+            <div className="text-center">
+              <p className="font-semibold text-[#1a1a1a]">Mídias da Audiência</p>
+              <p className="text-xs text-gray-500">Vídeos ou Áudios (Vários permitidos)</p>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            {videoFiles.map((f, i) => (
+              <div key={i} className="flex items-center justify-between bg-white/60 p-3 rounded-xl border border-black/5 text-sm">
+                <div className="flex items-center gap-2 overflow-hidden">
+                  <FileVideo size={16} className="text-[#5A5A40] shrink-0" />
+                  <span className="truncate">{f.name}</span>
+                </div>
+                <button
+                  onClick={() => setVideoFiles(prev => prev.filter((_, idx) => idx !== i))}
+                  className="text-gray-400 hover:text-red-500 p-1"
+                >
+                  <AlertCircle size={14} className="rotate-45" />
+                </button>
               </div>
-              <div className="text-center z-10">
-                <p className="font-semibold text-[#1a1a1a] truncate max-w-[200px] text-lg">{videoFile.name}</p>
-                <p className="text-sm font-medium text-[#5A5A40] mt-1">{videoFile.type.startsWith('video') ? 'Vídeo' : 'Áudio'} selecionado</p>
-              </div>
-            </>
-          ) : (
-            <>
-              <div className="relative z-10 w-20 h-20 bg-white text-gray-400 rounded-[24px] flex items-center justify-center shadow-sm border border-gray-100 transform transition-all group-hover:scale-110 group-hover:rotate-3 group-hover:text-[#5A5A40]">
-                <Upload size={36} />
-              </div>
-              <div className="text-center relative z-10">
-                <p className="font-semibold text-[#1a1a1a] text-lg mb-1">Mídia da Audiência</p>
-                <p className="text-sm font-medium text-gray-500">Vídeo ou Áudio (Arraste ou clique)</p>
-              </div>
-            </>
-          )}
+            ))}
+          </div>
         </div>
 
         {/* PDF Upload */}
-        <div
-          className={`group relative border-2 border-dashed rounded-[32px] p-10 transition-all duration-300 flex flex-col items-center justify-center gap-5 cursor-pointer overflow-hidden
-            ${pdfFile ? 'border-[#5A5A40] bg-[#5A5A40]/5 shadow-inner' : 'border-gray-300/80 hover:border-[#5A5A40]/50 hover:bg-white/50 hover:shadow-xl hover:-translate-y-1'}`}
-        >
-          <input
-            type="file"
-            accept="application/pdf"
-            className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20"
-            onChange={(e) => setPdfFile(e.target.files?.[0] || null)}
-          />
-          {pdfFile ? (
-            <>
-              <div className="w-20 h-20 bg-gradient-to-br from-[#5A5A40] to-[#3A3A20] text-white rounded-[24px] flex items-center justify-center shadow-lg shadow-[#5A5A40]/20 transform transition-transform group-hover:scale-105">
-                <FileText size={36} />
+        <div className="space-y-4">
+          <div
+            className={`group relative border-2 border-dashed rounded-[32px] p-8 transition-all duration-300 flex flex-col items-center justify-center gap-4 cursor-pointer overflow-hidden
+              ${pdfFiles.length > 0 ? 'border-[#5A5A40] bg-[#5A5A40]/5' : 'border-gray-300/80 hover:border-[#5A5A40]/50 hover:bg-white/50'}`}
+          >
+            <input
+              type="file"
+              multiple
+              accept="application/pdf"
+              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20"
+              onChange={(e) => {
+                const files = Array.from(e.target.files || []);
+                setPdfFiles(prev => [...prev, ...files]);
+              }}
+            />
+            <div className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-all ${pdfFiles.length > 0 ? 'bg-[#5A5A40] text-white' : 'bg-white text-gray-400 group-hover:text-[#5A5A40]'}`}>
+              <Upload size={28} />
+            </div>
+            <div className="text-center">
+              <p className="font-semibold text-[#1a1a1a]">PDFs do Processo</p>
+              <p className="text-xs text-gray-500">Documentos e Petições</p>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            {pdfFiles.map((f, i) => (
+              <div key={i} className="flex items-center justify-between bg-white/60 p-3 rounded-xl border border-black/5 text-sm">
+                <div className="flex items-center gap-2 overflow-hidden">
+                  <FileText size={16} className="text-[#5A5A40] shrink-0" />
+                  <span className="truncate">{f.name}</span>
+                </div>
+                <button
+                  onClick={() => setPdfFiles(prev => prev.filter((_, idx) => idx !== i))}
+                  className="text-gray-400 hover:text-red-500 p-1"
+                >
+                  <AlertCircle size={14} className="rotate-45" />
+                </button>
               </div>
-              <div className="text-center z-10">
-                <p className="font-semibold text-[#1a1a1a] truncate max-w-[200px] text-lg">{pdfFile.name}</p>
-                <p className="text-sm font-medium text-[#5A5A40] mt-1">PDF selecionado</p>
-              </div>
-            </>
-          ) : (
-            <>
-              <div className="relative z-10 w-20 h-20 bg-white text-gray-400 rounded-[24px] flex items-center justify-center shadow-sm border border-gray-100 transform transition-all group-hover:scale-110 group-hover:-rotate-3 group-hover:text-[#5A5A40]">
-                <Upload size={36} />
-              </div>
-              <div className="text-center relative z-10">
-                <p className="font-semibold text-[#1a1a1a] text-lg mb-1">PDF do Processo</p>
-                <p className="text-sm font-medium text-gray-500">Arraste ou clique para subir</p>
-              </div>
-            </>
-          )}
+            ))}
+          </div>
         </div>
       </div>
 
@@ -234,7 +267,7 @@ export const UploadAnalysis: React.FC<UploadAnalysisProps> = ({ processoId, onAn
 
       <button
         onClick={handleStartAnalysis}
-        disabled={!videoFile || !pdfFile || isAnalyzing}
+        disabled={videoFiles.length === 0 || pdfFiles.length === 0 || isAnalyzing}
         className="w-full relative overflow-hidden bg-[#5A5A40] text-white rounded-[24px] py-5 font-semibold text-lg hover:bg-[#4a4a35] transition-all flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed shadow-xl shadow-[#5A5A40]/30 transform active:scale-[0.98]"
       >
         {isAnalyzing && (

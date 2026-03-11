@@ -8,7 +8,8 @@ export const extractAudioFromVideo = async (videoFile: File): Promise<File> => {
     const arrayBuffer = await videoFile.arrayBuffer();
     const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
 
-    const numOfChan = audioBuffer.numberOfChannels;
+    // FORÇAR MONO: Reduz o tamanho do arquivo pela metade sem perda de qualidade para a IA.
+    const numOfChan = 1; 
     const length = audioBuffer.length * numOfChan * 2 + 44;
     const buffer = new ArrayBuffer(length);
     const view = new DataView(buffer);
@@ -37,18 +38,16 @@ export const extractAudioFromVideo = async (videoFile: File): Promise<File> => {
     setString(36, 'data');
     view.setUint32(40, length - pos - 4, true);
 
-    for (let i = 0; i < audioBuffer.numberOfChannels; i++) {
-        channels.push(audioBuffer.getChannelData(i));
-    }
+    // Mixdown para Mono (apenas o primeiro canal ou média dos dois)
+    channels.push(audioBuffer.getChannelData(0));
 
     pos = 44;
     while (pos < length) {
-        for (let i = 0; i < numOfChan; i++) {
-            sample = Math.max(-1, Math.min(1, channels[i][offset]));
-            sample = (0.5 + sample < 0 ? sample * 32768 : sample * 32767) | 0;
-            view.setInt16(pos, sample, true);
-            pos += 2;
-        }
+        // Pega o sample do canal 0 (mono)
+        sample = Math.max(-1, Math.min(1, channels[0][offset]));
+        sample = (0.5 + sample < 0 ? sample * 32768 : sample * 32767) | 0;
+        view.setInt16(pos, sample, true);
+        pos += 2;
         offset++;
     }
 

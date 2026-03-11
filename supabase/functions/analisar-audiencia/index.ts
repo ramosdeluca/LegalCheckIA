@@ -59,62 +59,66 @@ serve(async (req) => {
       return new Response(JSON.stringify({ message: "Nenhuma análise pendente." }), { status: 200, headers: corsHeaders });
     }
 
-    // Baixar o áudio e o PDF usando a Supabase Storage
-    const mediaPath = analiseData.video_url.split('/storage/v1/object/public/legalcheck/')[1];
-    const pdfPath = analiseData.pdf_url.split('/storage/v1/object/public/legalcheck/')[1];
+    // Listas de arquivos para baixar e processar
+    const videoUrls = analiseData.video_urls || (analiseData.video_url ? [analiseData.video_url] : []);
+    const pdfUrls = analiseData.pdf_urls || (analiseData.pdf_url ? [analiseData.pdf_url] : []);
 
-    console.log("Baixando arquivos do Storage...");
-    const { data: mediaBlob, error: mediaError } = await supabase.storage.from('legalcheck').download(mediaPath);
-    if (mediaError || !mediaBlob) throw new Error("Erro ao baixar a mídia do storage.");
+    if (videoUrls.length === 0 || pdfUrls.length === 0) {
+      throw new Error("Nenhum arquivo de vídeo ou PDF encontrado para esta análise.");
+    }
 
-    const { data: pdfBlob, error: pdfError } = await supabase.storage.from('legalcheck').download(pdfPath);
-    if (pdfError || !pdfBlob) throw new Error("Erro ao baixar o PDF do storage.");
-
-    console.log("Iniciando IA Gemini...");
+    console.log(`Iniciando IA Gemini para ${videoUrls.length} vídeos e ${pdfUrls.length} PDFs...`);
     const ai = new GoogleGenAI({ apiKey: geminiApiKey });
 
-    let uploadedMedia: any = null;
-    let uploadedPdf: any = null;
+    const googleFiles: any[] = [];
+    const promptParts: any[] = [];
 
     try {
-      console.log("Fazendo upload da mídia (Streaming) para Google File API...");
-      uploadedMedia = await ai.files.upload({
-        file: mediaBlob,
-        mimeType: mediaBlob.type || "audio/mp3",
-      });
-      
-      console.log("Fazendo upload do PDF para Google File API...");
-      uploadedPdf = await ai.files.upload({
-        file: pdfBlob,
-        mimeType: "application/pdf",
+      // 1. Processar Vídeos/Áudios
+      for (const url of videoUrls) {
+        const path = url.split('/storage/v1/object/public/legalcheck/')[1];
+        console.log(`Baixando mídia: ${path}`);
+        const { data: blob, error } = await supabase.storage.from('legalcheck').download(path);
+        if (error || !blob) throw new Error(`Erro ao baixar mídia: ${path}`);
+
+        console.log(`Fazendo upload para Google File API: ${path}`);
+        const uploaded = await ai.files.upload({
+          file: blob,
+          mimeType: blob.type || "audio/mp3",
+        });
+        googleFiles.push(uploaded);
+        promptParts.push({
+          fileData: { fileUri: uploaded.uri, mimeType: uploaded.mimeType }
+        });
+      }
+
+      // 2. Processar PDFs
+      for (const url of pdfUrls) {
+        const path = url.split('/storage/v1/object/public/legalcheck/')[1];
+        console.log(`Baixando PDF: ${path}`);
+        const { data: blob, error } = await supabase.storage.from('legalcheck').download(path);
+        if (error || !blob) throw new Error(`Erro ao baixar PDF: ${path}`);
+
+        console.log(`Fazendo upload para Google File API: ${path}`);
+        const uploaded = await ai.files.upload({
+          file: blob,
+          mimeType: "application/pdf",
+        });
+        googleFiles.push(uploaded);
+        promptParts.push({
+          fileData: { fileUri: uploaded.uri, mimeType: uploaded.mimeType }
+        });
+      }
+
+      // 3. Adicionar Instrução a prompt
+      promptParts.push({
+        text: `ANÁLISE JURÍDICA EXAUSTIVA REQUERIDA:\n\nInstrução:\nAnalise TODOS os arquivos anexos (processos em PDF e áudios de audiências).\nBusque por contradições entre:\n- Depoimentos vs. PDFs.\n- Depoimentos vs. Outros Depoimentos.\n\nRetorne os resultados em JSON estritamente no Schema configurado.`
       });
 
-      console.log(`Mídia URI: ${uploadedMedia.uri}`);
-
-      console.log("Iniciando Análise de Contradições no modelo Gemini...");
+      console.log("Iniciando Geração de Conteúdo consolidada no Gemini...");
       const response = await ai.models.generateContent({
         model: "gemini-3.1-pro-preview",
-        contents: [
-          {
-            parts: [
-              {
-                fileData: {
-                  fileUri: uploadedMedia.uri,
-                  mimeType: uploadedMedia.mimeType,
-                },
-              },
-              {
-                fileData: {
-                  fileUri: uploadedPdf.uri,
-                  mimeType: uploadedPdf.mimeType,
-                },
-              },
-              {
-                text: `ANÁLISE JURÍDICA EXAUSTIVA REQUERIDA:\n\nInstrução:\nAnalise o arquivo PDF anexo (processo) e o áudio da audiência.\nBusque por contradições entre:\n- Depoimento vs. PDF.\n- Depoimento vs. Outro Depoimento.\n\nRetorne os resultados em JSON estritamente no Schema configurado.`
-              }
-            ],
-          },
-        ],
+        contents: [{ parts: promptParts }],
         config: {
           systemInstruction: SYSTEM_INSTRUCTION,
           responseMimeType: "application/json",
@@ -152,12 +156,24 @@ serve(async (req) => {
         status: 'concluido'
       }).eq('id', analiseData.id);
 
+      // Limpeza do Supabase Storage: Agora que a IA já processou e o Google File API já recebeu,
+      // podemos apagar do Supabase para não ocupar os 1GB da conta gratuita.
+      console.log("Limpando arquivos do Supabase Storage...");
+      const filesToDelete = [
+        ...videoUrls.map((url: string) => url.split('/storage/v1/object/public/legalcheck/')[1]),
+        ...pdfUrls.map((url: string) => url.split('/storage/v1/object/public/legalcheck/')[1])
+      ].filter(Boolean);
+      
+      if (filesToDelete.length > 0) {
+        await supabase.storage.from('legalcheck').remove(filesToDelete).catch(console.error);
+      }
+
     } finally {
       // Cleanup: Excluir os arquivos no servidor do Google para não ocupar cota
-      // O bloco finally roda mesmo se houver erro no try (ex: timeout da IA ou erro de parse)
       console.log("Limpando arquivos do Google File API...");
-      if (uploadedMedia) await ai.files.delete({ name: uploadedMedia.name }).catch(console.error);
-      if (uploadedPdf) await ai.files.delete({ name: uploadedPdf.name }).catch(console.error);
+      for (const file of googleFiles) {
+        await ai.files.delete({ name: file.name }).catch(console.error);
+      }
     }
 
     return new Response(JSON.stringify({ success: true }), { headers: corsHeaders, status: 200 });
