@@ -47,6 +47,7 @@ export const Dashboard: React.FC = () => {
   useEffect(() => {
     fetchProcessos();
   }, [user]);
+  const [analysisStatus, setAnalysisStatus] = useState<string | null>(null);
 
   const fetchAnalysis = async (processoId: string) => {
     const { data, error } = await supabase
@@ -58,18 +59,57 @@ export const Dashboard: React.FC = () => {
       .maybeSingle();
 
     if (!error && data) {
-      setAnalysisResult(data.resultado_json);
-      setAnalysisUrls({ video: data.video_url, pdf: data.pdf_url });
+      setAnalysisStatus(data.status);
+      if (data.status === 'concluido') {
+        setAnalysisResult(data.resultado_json);
+        setAnalysisUrls({ video: data.video_url, pdf: data.pdf_url });
+      } else {
+        setAnalysisResult(null);
+        setAnalysisUrls({});
+      }
     } else {
+      setAnalysisStatus(null);
       setAnalysisResult(null);
       setAnalysisUrls({});
     }
   };
 
   useEffect(() => {
-    if (activeProcesso) {
-      fetchAnalysis(activeProcesso.id);
-    }
+    if (!activeProcesso) return;
+
+    fetchAnalysis(activeProcesso.id);
+
+    // Como o Supabase Realtime requer configuração de "Publication" no painel SQL para a tabela 'analises'
+    // e mensagens Realtime com JSONs grandes podem ser dropadas pelo servidor (limite de 1MB do payload),
+    // vamos implementar um polling robusto que verifica o status a cada 5 segundos se estiver "processando".
+    let pollInterval: NodeJS.Timeout;
+
+    const startPolling = () => {
+      pollInterval = setInterval(async () => {
+        const { data, error } = await supabase
+          .from('analises')
+          .select('status, resultado_json, video_url, pdf_url')
+          .eq('processo_id', activeProcesso.id)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (!error && data) {
+          setAnalysisStatus(data.status);
+          if (data.status === 'concluido' && data.resultado_json) {
+            setAnalysisResult(data.resultado_json);
+            setAnalysisUrls({ video: data.video_url, pdf: data.pdf_url });
+            clearInterval(pollInterval);
+          }
+        }
+      }, 5000); // 5 seconds interval
+    };
+
+    startPolling();
+
+    return () => {
+      if (pollInterval) clearInterval(pollInterval);
+    };
   }, [activeProcesso]);
 
   const handleCreateProcesso = async (e: React.FormEvent) => {
@@ -274,12 +314,38 @@ export const Dashboard: React.FC = () => {
                 </div>
               </div>
 
-              {analysisResult ? (
+              {analysisStatus === 'processando' || analysisStatus === 'processando_ia' ? (
+                <div className="h-full min-h-[400px] flex flex-col items-center justify-center text-center bg-white/60 backdrop-blur-md rounded-[40px] border border-white shadow-sm p-12 relative overflow-hidden">
+                  <div className="absolute top-0 right-0 w-64 h-64 bg-blue-500/5 rounded-full blur-3xl pointer-events-none" />
+                  <div className="absolute bottom-0 left-0 w-64 h-64 bg-indigo-500/5 rounded-full blur-3xl pointer-events-none" />
+
+                  <div className="relative z-10 flex flex-col items-center">
+                    <div className="w-24 h-24 mb-6 relative">
+                      <div className="absolute inset-0 bg-gradient-to-tr from-blue-500 to-indigo-500 rounded-full animate-pulse opacity-20" />
+                      <div className="w-full h-full bg-white rounded-full flex items-center justify-center shadow-lg">
+                        <Loader2 className="animate-spin text-blue-600" size={40} />
+                      </div>
+                    </div>
+
+                    <h2 className="text-3xl font-serif text-[#1a1a1a] mb-4 tracking-tight">Análise em Andamento</h2>
+                    <p className="text-gray-500 max-w-sm mx-auto mb-8 font-medium leading-relaxed">
+                      Nossa Inteligência Artificial está assistindo à audiência e cruzando os dados com o processo.
+                      Isso pode levar alguns minutos.
+                    </p>
+
+                    <div className="inline-flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-700 rounded-full text-xs font-bold uppercase tracking-widest">
+                      <Clock size={14} className="animate-pulse" />
+                      Você pode fechar esta página ou analisar outros processos
+                    </div>
+                  </div>
+                </div>
+              ) : analysisResult ? (
                 <AnalysisReport
                   result={analysisResult}
                   onReset={() => {
                     setAnalysisResult(null);
                     setAnalysisUrls({});
+                    setAnalysisStatus(null);
                   }}
                   videoUrl={analysisUrls.video}
                   pdfUrl={analysisUrls.pdf}
@@ -289,9 +355,8 @@ export const Dashboard: React.FC = () => {
               ) : (
                 <UploadAnalysis
                   processoId={activeProcesso.id}
-                  onAnalysisComplete={(result, video, pdf) => {
-                    setAnalysisResult(result);
-                    setAnalysisUrls({ video, pdf });
+                  onAnalysisStarted={() => {
+                    setAnalysisStatus('processando');
                   }}
                 />
               )}

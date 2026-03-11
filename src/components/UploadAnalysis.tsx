@@ -12,10 +12,10 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLi
 
 interface UploadAnalysisProps {
   processoId: string;
-  onAnalysisComplete: (result: any, videoUrl?: string, pdfUrl?: string) => void;
+  onAnalysisStarted: () => void;
 }
 
-export const UploadAnalysis: React.FC<UploadAnalysisProps> = ({ processoId, onAnalysisComplete }) => {
+export const UploadAnalysis: React.FC<UploadAnalysisProps> = ({ processoId, onAnalysisStarted }) => {
   const { user } = useAuth();
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [pdfFile, setPdfFile] = useState<File | null>(null);
@@ -117,28 +117,25 @@ export const UploadAnalysis: React.FC<UploadAnalysisProps> = ({ processoId, onAn
       const { data: { publicUrl: mediaUrl } } = supabase.storage.from('legalcheck').getPublicUrl(mediaPath);
       const { data: { publicUrl: pdfUrl } } = supabase.storage.from('legalcheck').getPublicUrl(pdfPath);
 
-      setProgress('Extraindo texto do PDF...');
-      const pdfText = await extractTextFromPdf(pdfFile);
-
-      setProgress('Preparando mídia para análise (isso pode levar alguns minutos)...');
-      const mediaBase64 = await fileToBase64(mediaToUpload);
-
-      setProgress('IA analisando audiência e buscando contradições...');
-      const result = await analyzeHearing(mediaBase64, pdfText, mediaToUpload.type);
-
-      // Save analysis to Supabase
+      // Save analysis to Supabase with status 'processando'
       const { error: dbError } = await supabase.from('analises').insert({
         processo_id: processoId,
         user_id: user.id,
-        status: 'concluido',
-        resultado_json: result,
+        status: 'processando',
+        resultado_json: null,
         video_url: mediaUrl,
         pdf_url: pdfUrl
       });
 
       if (dbError) throw dbError;
 
-      onAnalysisComplete(result, mediaUrl, pdfUrl);
+      // Chama a função server-side background "Fire-and-forget"
+      supabase.functions.invoke('analisar-audiencia', {
+        body: { processoId: processoId }
+      }).catch(console.error);
+
+      // Informa o Dashboard que iniciou
+      onAnalysisStarted();
     } catch (err: any) {
       console.error(err);
       setError(err.message || 'Erro durante a análise. Verifique o tamanho dos arquivos.');
