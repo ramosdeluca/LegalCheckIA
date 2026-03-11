@@ -18,6 +18,8 @@ interface AnalysisReportProps {
   onReset: () => void;
   videoUrl?: string;
   pdfUrl?: string;
+  videoUrls?: string[];
+  pdfUrls?: string[];
   processNumber?: string;
   clientName?: string;
 }
@@ -27,6 +29,8 @@ export const AnalysisReport: React.FC<AnalysisReportProps> = ({
   onReset,
   videoUrl,
   pdfUrl,
+  videoUrls,
+  pdfUrls,
   processNumber,
   clientName
 }) => {
@@ -202,17 +206,34 @@ export const AnalysisReport: React.FC<AnalysisReportProps> = ({
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-4 bg-white/60 backdrop-blur-md p-5 rounded-[32px] border border-white shadow-sm">
         <div className="flex flex-wrap items-center gap-4">
-          {(videoUrl || pdfUrl) && (
-            <div className="flex items-center gap-3 px-5 py-2.5 bg-white/80 rounded-full border border-black/5 shadow-sm">
-              {videoUrl && (
-                <a href={videoUrl} target="_blank" rel="noopener noreferrer" className="text-xs font-bold uppercase tracking-widest text-[#5A5A40] hover:text-[#4A4A30] flex items-center gap-2 transition-colors">
-                  <Volume2 size={16} /> Áudio Original
+          {((videoUrls && videoUrls.length > 0) || (pdfUrls && pdfUrls.length > 0) || videoUrl || pdfUrl) && (
+            <div className="flex flex-wrap items-center gap-3 px-5 py-2.5 bg-white/80 rounded-[20px] border border-black/5 shadow-sm">
+              {/* Vídeos/Audios */}
+              {videoUrls && videoUrls.length > 0 ? (
+                videoUrls.map((url, i) => (
+                  <a key={`v-${i}`} href={url} target="_blank" rel="noopener noreferrer" className="text-[10px] font-bold uppercase tracking-widest text-[#5A5A40] hover:text-[#4A4A30] flex items-center gap-1.5 transition-colors">
+                    <Volume2 size={14} /> Áudio {videoUrls.length > 1 ? i + 1 : ''}
+                  </a>
+                ))
+              ) : videoUrl && (
+                <a href={videoUrl} target="_blank" rel="noopener noreferrer" className="text-[10px] font-bold uppercase tracking-widest text-[#5A5A40] hover:text-[#4A4A30] flex items-center gap-1.5 transition-colors">
+                  <Volume2 size={14} /> Áudio Original
                 </a>
               )}
-              {videoUrl && pdfUrl && <div className="w-px h-4 bg-gray-200" />}
-              {pdfUrl && (
-                <a href={pdfUrl} target="_blank" rel="noopener noreferrer" className="text-xs font-bold uppercase tracking-widest text-[#5A5A40] hover:text-[#4A4A30] flex items-center gap-2 transition-colors">
-                  <FileText size={16} /> PDF Original
+
+              {/* Separador se houver ambos */}
+              {((videoUrls?.length || videoUrl) && (pdfUrls?.length || pdfUrl)) && <div className="w-px h-4 bg-gray-200" />}
+
+              {/* PDFs */}
+              {pdfUrls && pdfUrls.length > 0 ? (
+                pdfUrls.map((url, i) => (
+                  <a key={`p-${i}`} href={url} target="_blank" rel="noopener noreferrer" className="text-[10px] font-bold uppercase tracking-widest text-[#5A5A40] hover:text-[#4A4A30] flex items-center gap-1.5 transition-colors">
+                    <FileText size={14} /> PDF {pdfUrls.length > 1 ? i + 1 : ''}
+                  </a>
+                ))
+              ) : pdfUrl && (
+                <a href={pdfUrl} target="_blank" rel="noopener noreferrer" className="text-[10px] font-bold uppercase tracking-widest text-[#5A5A40] hover:text-[#4A4A30] flex items-center gap-1.5 transition-colors">
+                  <FileText size={14} /> PDF Original
                 </a>
               )}
             </div>

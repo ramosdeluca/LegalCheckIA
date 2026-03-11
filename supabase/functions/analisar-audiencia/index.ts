@@ -13,18 +13,20 @@ const geminiApiKey = Deno.env.get("GEMINI_API_KEY") ?? "";
 
 const SYSTEM_INSTRUCTION = `
 Você é um Engenheiro Jurídico de elite, especializado em análise minuciosa de audiências judiciais e processos complexos.
-Sua tarefa é realizar uma auditoria completa do áudio/vídeo da audiência, comparando-o com o texto do processo (PDF) para identificar TODAS as contradições possíveis e fornecer uma síntese conclusiva.
+Sua tarefa é realizar uma auditoria completa de TODOS os arquivos de áudio/vídeo da audiência anexados, comparando-os com o texto do processo (PDF) para identificar TODAS as contradições possíveis e fornecer uma síntese conclusiva.
 
-DIRETRIZES DE ANÁLISE:
+DIRETRIZES DE ANÁLISE (CRÍTICO):
 - Identifique e analise o depoimento de CADA pessoa (Autor, Réu, Testemunha 1, 2, 3, etc.).
 - Compare o depoimento com o PDF (Contradição Documental).
 - Compare depoimentos entre diferentes testemunhas (Contradição Inter-testemunhal).
-- Seja extremamente rigoroso com o TIMESTAMP (minuto:segundo).
+- TIMESTAMP: Você deve fornecer o tempo exato (minuto:segundo) relativo ao arquivo de áudio onde a fala ocorreu. Se houver múltiplos arquivos, especifique de qual arquivo se trata se houver dúvida.
+- NÃO retorne "00:00" a menos que a fala tenha ocorrido exatamente no início do arquivo. Você DEVE ouvir o áudio para encontrar o ponto exato da fala.
 
-REGRAS DE PREENCHIMENTO (CRÍTICO):
+REGRAS DE PREENCHIMENTO:
 1. "resumo_executivo": Forneça um parágrafo conciso resumindo as principais constatações da análise panorâmica do processo.
 2. "analise_tendencia": Escreva uma frase ou pequeno parágrafo apontando a tendência geral da prova oral (ex: depoimento confiável, testemunha fragilizada, provas robustas a favor do autor, etc.).
 3. Para cada item na lista de "contradicoes":
+   - "timestamp": Formato "MM:SS". Seja preciso. Use o tempo relativo ao arquivo de áudio.
    - "o_que_foi_dito": Deve conter DE QUEM é a fala e APENAS o que foi afirmado no vídeo/áudio no timestamp, preferencialmente entre aspas. Exemplo: "Testemunha 1: '...'".
    - "o_que_diz_o_processo": Deve conter APENAS a prova documental (PDF) ou depoimento anterior que contradiz a fala acima.
    - "explicacao": Use este cenário para sua análise técnica e o impacto jurídico. Não misture análise nos campos acima.
@@ -88,6 +90,9 @@ serve(async (req) => {
         });
         googleFiles.push(uploaded);
         promptParts.push({
+          text: `Arquivo de Áudio/Vídeo: ${path}`
+        });
+        promptParts.push({
           fileData: { fileUri: uploaded.uri, mimeType: uploaded.mimeType }
         });
       }
@@ -105,6 +110,9 @@ serve(async (req) => {
           mimeType: "application/pdf",
         });
         googleFiles.push(uploaded);
+        promptParts.push({
+          text: `Documento Processual PDF: ${path}`
+        });
         promptParts.push({
           fileData: { fileUri: uploaded.uri, mimeType: uploaded.mimeType }
         });
@@ -155,18 +163,6 @@ serve(async (req) => {
         resultado_json: resultJson,
         status: 'concluido'
       }).eq('id', analiseData.id);
-
-      // Limpeza do Supabase Storage: Agora que a IA já processou e o Google File API já recebeu,
-      // podemos apagar do Supabase para não ocupar os 1GB da conta gratuita.
-      console.log("Limpando arquivos do Supabase Storage...");
-      const filesToDelete = [
-        ...videoUrls.map((url: string) => url.split('/storage/v1/object/public/legalcheck/')[1]),
-        ...pdfUrls.map((url: string) => url.split('/storage/v1/object/public/legalcheck/')[1])
-      ].filter(Boolean);
-      
-      if (filesToDelete.length > 0) {
-        await supabase.storage.from('legalcheck').remove(filesToDelete).catch(console.error);
-      }
 
     } finally {
       // Cleanup: Excluir os arquivos no servidor do Google para não ocupar cota

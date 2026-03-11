@@ -12,7 +12,7 @@ export const Dashboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [activeProcesso, setActiveProcesso] = useState<any | null>(null);
   const [analysisResult, setAnalysisResult] = useState<any | null>(null);
-  const [analysisUrls, setAnalysisUrls] = useState<{ video?: string, pdf?: string }>({});
+  const [analysisUrls, setAnalysisUrls] = useState<{ video?: string, pdf?: string, videos?: string[], pdfs?: string[] }>({});
   const [showNewProcessoModal, setShowNewProcessoModal] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [processToDelete, setProcessToDelete] = useState<any | null>(null);
@@ -62,7 +62,12 @@ export const Dashboard: React.FC = () => {
       setAnalysisStatus(data.status);
       if (data.status === 'concluido') {
         setAnalysisResult(data.resultado_json);
-        setAnalysisUrls({ video: data.video_url, pdf: data.pdf_url });
+        setAnalysisUrls({
+          video: data.video_url,
+          pdf: data.pdf_url,
+          videos: data.video_urls,
+          pdfs: data.pdf_urls
+        });
       } else {
         setAnalysisResult(null);
         setAnalysisUrls({});
@@ -88,7 +93,7 @@ export const Dashboard: React.FC = () => {
       pollInterval = setInterval(async () => {
         const { data, error } = await supabase
           .from('analises')
-          .select('status, resultado_json, video_url, pdf_url')
+          .select('status, resultado_json, video_url, pdf_url, video_urls, pdf_urls')
           .eq('processo_id', activeProcesso.id)
           .order('created_at', { ascending: false })
           .limit(1)
@@ -98,7 +103,12 @@ export const Dashboard: React.FC = () => {
           setAnalysisStatus(data.status);
           if (data.status === 'concluido' && data.resultado_json) {
             setAnalysisResult(data.resultado_json);
-            setAnalysisUrls({ video: data.video_url, pdf: data.pdf_url });
+            setAnalysisUrls({
+              video: data.video_url,
+              pdf: data.pdf_url,
+              videos: data.video_urls,
+              pdfs: data.pdf_urls
+            });
             clearInterval(pollInterval);
           }
         }
@@ -143,13 +153,14 @@ export const Dashboard: React.FC = () => {
       // 1. Get all analyses for this process to find file paths
       const { data: analises } = await supabase
         .from('analises')
-        .select('video_url, pdf_url')
+        .select('video_url, pdf_url, video_urls, pdf_urls')
         .eq('processo_id', processToDelete.id);
 
       if (analises && analises.length > 0) {
         const filesToDelete: string[] = [];
 
         analises.forEach(a => {
+          // Backward compatibility
           if (a.video_url) {
             const path = a.video_url.split('/storage/v1/object/public/legalcheck/')[1];
             if (path) filesToDelete.push(path);
@@ -157,6 +168,19 @@ export const Dashboard: React.FC = () => {
           if (a.pdf_url) {
             const path = a.pdf_url.split('/storage/v1/object/public/legalcheck/')[1];
             if (path) filesToDelete.push(path);
+          }
+          // New Multi-file format
+          if (a.video_urls && Array.isArray(a.video_urls)) {
+            a.video_urls.forEach((url: string) => {
+              const path = url.split('/storage/v1/object/public/legalcheck/')[1];
+              if (path) filesToDelete.push(path);
+            });
+          }
+          if (a.pdf_urls && Array.isArray(a.pdf_urls)) {
+            a.pdf_urls.forEach((url: string) => {
+              const path = url.split('/storage/v1/object/public/legalcheck/')[1];
+              if (path) filesToDelete.push(path);
+            });
           }
         });
 
@@ -349,6 +373,8 @@ export const Dashboard: React.FC = () => {
                   }}
                   videoUrl={analysisUrls.video}
                   pdfUrl={analysisUrls.pdf}
+                  videoUrls={analysisUrls.videos}
+                  pdfUrls={analysisUrls.pdfs}
                   processNumber={formatProcessNumber(activeProcesso.numero_processo || '')}
                   clientName={activeProcesso.cliente}
                 />
