@@ -1,6 +1,5 @@
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
-import { GoogleGenAI, Type } from "npm:@google/genai";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -32,14 +31,67 @@ REGRAS DE PREENCHIMENTO:
    - "explicacao": Use este cenário para sua análise técnica e o impacto jurídico. Não misture análise nos campos acima.
 `;
 
+// Helper para upload de arquivos via REST API (Manual Multipart/Related) - OTIMIZADO PARA RAM
+async function uploadToGemini(blob: Blob, fileName: string) {
+  const url = `https://generativelanguage.googleapis.com/upload/v1beta/files?key=${geminiApiKey}`;
+  const boundary = "-------antigravity_boundary_" + Date.now();
+  
+  const metadata = JSON.stringify({
+    file: {
+      display_name: fileName,
+    },
+  });
+
+  // Construir o corpo usando partes de Blob para evitar duplicar o conteúdo em RAM
+  const header = 
+    `--${boundary}\r\n` +
+    `Content-Type: application/json; charset=UTF-8\r\n\r\n` +
+    `${metadata}\r\n` +
+    `--${boundary}\r\n` +
+    `Content-Type: ${blob.type || 'application/octet-stream'}\r\n\r\n`;
+  
+  const footer = `\r\n--${boundary}--`;
+
+  const bodyBlob = new Blob([
+    new TextEncoder().encode(header),
+    blob,
+    new TextEncoder().encode(footer)
+  ], { type: `multipart/related; boundary=${boundary}` });
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'X-Goog-Upload-Protocol': 'multipart',
+    },
+    body: bodyBlob,
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Gemini Upload Error: ${response.status} - ${errorText}`);
+  }
+
+  const result = await response.json();
+  return result.file;
+}
+
+// Helper para excluir arquivo via REST API
+async function deleteGeminiFile(fileName: string) {
+  const url = `https://generativelanguage.googleapis.com/v1beta/${fileName}?key=${geminiApiKey}`;
+  await fetch(url, { method: 'DELETE' }).catch(console.error);
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
   }
 
+  const supabase = createClient(supabaseUrl, supabaseServiceKey);
+  let currentAnaliseId: string | null = null;
+
   try {
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
-    const { processoId } = await req.json();
+    const bodyText = await req.text();
+    const { processoId } = JSON.parse(bodyText);
 
     if (!processoId) {
       return new Response(JSON.stringify({ error: "processoId is required" }), { status: 400, headers: corsHeaders });
@@ -47,7 +99,6 @@ serve(async (req) => {
 
     console.log(`Iniciando processamento para o processo: ${processoId}`);
 
-    // Buscar a análise pendente
     const { data: analiseData, error: analiseError } = await supabase
       .from('analises')
       .select('*')
@@ -61,121 +112,128 @@ serve(async (req) => {
       return new Response(JSON.stringify({ message: "Nenhuma análise pendente." }), { status: 200, headers: corsHeaders });
     }
 
-    // Listas de arquivos para baixar e processar
+    currentAnaliseId = analiseData.id;
     const videoUrls = analiseData.video_urls || (analiseData.video_url ? [analiseData.video_url] : []);
     const pdfUrls = analiseData.pdf_urls || (analiseData.pdf_url ? [analiseData.pdf_url] : []);
 
     if (videoUrls.length === 0 || pdfUrls.length === 0) {
-      throw new Error("Nenhum arquivo de vídeo ou PDF encontrado para esta análise.");
+       throw new Error("Nenhum arquivo de vídeo ou PDF encontrado para esta análise.");
     }
 
-    console.log(`Iniciando IA Gemini para ${videoUrls.length} vídeos e ${pdfUrls.length} PDFs...`);
-    const ai = new GoogleGenAI({ apiKey: geminiApiKey });
-
     const googleFiles: any[] = [];
-    const promptParts: any[] = [];
+    const contentsParts: any[] = [];
 
     try {
-      // 1. Processar Vídeos/Áudios
-      for (const url of videoUrls) {
-        const path = url.split('/storage/v1/object/public/legalcheck/')[1];
-        console.log(`Baixando mídia: ${path}`);
-        const { data: blob, error } = await supabase.storage.from('legalcheck').download(path);
-        if (error || !blob) throw new Error(`Erro ao baixar mídia: ${path}`);
+      // 1. Processar arquivos SEQUENCIALMENTE para economizar memória (evitar Memory limit exceeded)
+      console.log(`Processando ${videoUrls.length} vídeos e ${pdfUrls.length} PDFs sequencialmente...`);
+      
+      const fileTasks = [
+        ...videoUrls.map(url => ({ url, type: 'video' })),
+        ...pdfUrls.map(url => ({ url, type: 'pdf' }))
+      ];
 
-        console.log(`Fazendo upload para Google File API: ${path}`);
-        const uploaded = await ai.files.upload({
-          file: blob,
-          mimeType: blob.type || "audio/mp3",
+      for (const task of fileTasks) {
+        const path = task.url.split('/storage/v1/object/public/legalcheck/')[1];
+        console.log(`[PROCESSANDO] ${task.type}: ${path}`);
+        
+        const { data: blob, error } = await supabase.storage.from('legalcheck').download(path);
+        if (error || !blob) throw new Error(`Erro no download de ${task.type}: ${path}`);
+
+        const file = await uploadToGemini(blob, path);
+        console.log(`[OK] ${task.type}: ${path}`);
+        
+        googleFiles.push(file);
+        contentsParts.push({ 
+          text: `${task.type === 'video' ? 'Arquivo de Áudio/Vídeo' : 'Documento Processual PDF'}: ${path}` 
         });
-        googleFiles.push(uploaded);
-        promptParts.push({
-          text: `Arquivo de Áudio/Vídeo: ${path}`
+        contentsParts.push({
+          file_data: { file_uri: file.uri, mime_type: file.mimeType }
         });
-        promptParts.push({
-          fileData: { fileUri: uploaded.uri, mimeType: uploaded.mimeType }
-        });
+
+        // Garantir que o blob seja limpo da memória antes do próximo arquivo
+        // (No JS o garbage collector cuida disso, mas processar um por vez garante que não acumulem)
       }
 
-      // 2. Processar PDFs
-      for (const url of pdfUrls) {
-        const path = url.split('/storage/v1/object/public/legalcheck/')[1];
-        console.log(`Baixando PDF: ${path}`);
-        const { data: blob, error } = await supabase.storage.from('legalcheck').download(path);
-        if (error || !blob) throw new Error(`Erro ao baixar PDF: ${path}`);
-
-        console.log(`Fazendo upload para Google File API: ${path}`);
-        const uploaded = await ai.files.upload({
-          file: blob,
-          mimeType: "application/pdf",
-        });
-        googleFiles.push(uploaded);
-        promptParts.push({
-          text: `Documento Processual PDF: ${path}`
-        });
-        promptParts.push({
-          fileData: { fileUri: uploaded.uri, mimeType: uploaded.mimeType }
-        });
-      }
-
-      // 3. Adicionar Instrução a prompt
-      promptParts.push({
-        text: `ANÁLISE JURÍDICA EXAUSTIVA REQUERIDA:\n\nInstrução:\nAnalise TODOS os arquivos anexos (processos em PDF e áudios de audiências).\nBusque por contradições entre:\n- Depoimentos vs. PDFs.\n- Depoimentos vs. Outros Depoimentos.\n\nRetorne os resultados em JSON estritamente no Schema configurado.`
+      // 2. Adicionar Instrução e Gerar
+      contentsParts.push({
+        text: `ANÁLISE JURÍDICA EXAUSTIVA REQUERIDA:\n\nInstrução:\nAnalise TODOS os arquivos anexos (processos em PDF e áudios de audiências).\nBusque por contradições entre:\n- Depoimentos vs. PDFs.\n- Depoimentos vs. Outros Depoimentos.\n\nRetorne os resultados em JSON conforme solicitado.`
       });
 
-      console.log("Iniciando Geração de Conteúdo consolidada no Gemini...");
-      const response = await ai.models.generateContent({
-        model: "gemini-3.1-pro-preview",
-        contents: [{ parts: promptParts }],
-        config: {
-          systemInstruction: SYSTEM_INSTRUCTION,
+      console.log("Enviando para Gemini (geração pode levar tempo)...");
+      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${geminiApiKey}`;
+      
+      const generationBody = {
+        contents: [{ role: "user", parts: contentsParts }],
+        systemInstruction: { parts: [{ text: SYSTEM_INSTRUCTION }] },
+        generationConfig: {
           responseMimeType: "application/json",
           responseSchema: {
-            type: Type.OBJECT,
+            type: "object",
             properties: {
-              resumo_executivo: { type: Type.STRING },
-              analise_tendencia: { type: Type.STRING },
+              resumo_executivo: { type: "string" },
+              analise_tendencia: { type: "string" },
               contradicoes: {
-                type: Type.ARRAY,
+                type: "array",
                 items: {
-                  type: Type.OBJECT,
+                  type: "object",
                   properties: {
-                    timestamp: { type: Type.STRING },
-                    o_que_foi_dito: { type: Type.STRING },
-                    o_que_diz_o_processo: { type: Type.STRING },
-                    tipo_contradicao: { type: Type.STRING },
-                    gravidade: { type: Type.STRING, enum: ["Baixa", "Média", "Alta"] },
-                    explicacao: { type: Type.STRING },
+                    timestamp: { type: "string" },
+                    o_que_foi_dito: { type: "string" },
+                    o_que_diz_o_processo: { type: "string" },
+                    tipo_contradicao: { type: "string" },
+                    gravidade: { type: "string", enum: ["Baixa", "Média", "Alta"] },
+                    explicacao: { type: "string" },
                   },
                   required: ["timestamp", "o_que_foi_dito", "o_que_diz_o_processo", "tipo_contradicao", "gravidade", "explicacao"],
                 },
               }
             },
             required: ["resumo_executivo", "analise_tendencia", "contradicoes"],
-          },
-        },
+          }
+        }
+      };
+
+      const genResponse = await fetch(geminiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(generationBody),
       });
 
-      const resultJson = JSON.parse(response.text || "{}");
+      if (!genResponse.ok) {
+        const errText = await genResponse.text();
+        throw new Error(`Gemini Generation Error: ${genResponse.status} - ${errText}`);
+      }
 
-      console.log("Análise concluída. Salvando no banco...");
+      const genResult = await genResponse.json();
+      const resultText = genResult.candidates?.[0]?.content?.parts?.[0]?.text;
+      const resultJson = JSON.parse(resultText || "{}");
+
+      console.log("Sucesso! Salvando resultado no banco...");
       await supabase.from('analises').update({
         resultado_json: resultJson,
         status: 'concluido'
-      }).eq('id', analiseData.id);
+      }).eq('id', currentAnaliseId);
 
     } finally {
-      // Cleanup: Excluir os arquivos no servidor do Google para não ocupar cota
-      console.log("Limpando arquivos do Google File API...");
+      console.log("Limpando arquivos temporários no Gemini...");
       for (const file of googleFiles) {
-        await ai.files.delete({ name: file.name }).catch(console.error);
+        await deleteGeminiFile(file.name);
       }
     }
 
     return new Response(JSON.stringify({ success: true }), { headers: corsHeaders, status: 200 });
 
   } catch (error: any) {
-    console.error("Erro na Edge Function:", error.message);
+    console.error("ERRO CRÍTICO:", error.message);
+    
+    // Marcar como erro no banco para não travar a UI
+    if (currentAnaliseId) {
+      await supabase.from('analises').update({
+        status: 'erro',
+        resultado_json: { erro: error.message }
+      }).eq('id', currentAnaliseId);
+    }
+
     return new Response(JSON.stringify({ error: error.message }), { headers: corsHeaders, status: 500 });
   }
 });

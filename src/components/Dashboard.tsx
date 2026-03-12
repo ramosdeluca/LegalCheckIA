@@ -79,10 +79,19 @@ export const Dashboard: React.FC = () => {
     }
   };
 
+  // Reset analysis state when switching processes
+  useEffect(() => {
+    setAnalysisStatus(null);
+    setAnalysisResult(null);
+    setAnalysisUrls({});
+  }, [activeProcesso?.id]);
+
   useEffect(() => {
     if (!activeProcesso) return;
 
-    fetchAnalysis(activeProcesso.id);
+    if (analysisStatus === null) {
+      fetchAnalysis(activeProcesso.id);
+    }
 
     // Como o Supabase Realtime requer configuração de "Publication" no painel SQL para a tabela 'analises'
     // e mensagens Realtime com JSONs grandes podem ser dropadas pelo servidor (limite de 1MB do payload),
@@ -100,7 +109,9 @@ export const Dashboard: React.FC = () => {
           .maybeSingle();
 
         if (!error && data) {
-          setAnalysisStatus(data.status);
+          if (data.status !== analysisStatus) {
+            setAnalysisStatus(data.status);
+          }
           if (data.status === 'concluido' && data.resultado_json) {
             setAnalysisResult(data.resultado_json);
             setAnalysisUrls({
@@ -115,12 +126,14 @@ export const Dashboard: React.FC = () => {
       }, 5000); // 5 seconds interval
     };
 
-    startPolling();
+    if (analysisStatus === 'processando' || analysisStatus === 'processando_ia') {
+      startPolling();
+    }
 
     return () => {
       if (pollInterval) clearInterval(pollInterval);
     };
-  }, [activeProcesso]);
+  }, [activeProcesso, analysisStatus]);
 
   const handleCreateProcesso = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -369,7 +382,7 @@ export const Dashboard: React.FC = () => {
                   onReset={() => {
                     setAnalysisResult(null);
                     setAnalysisUrls({});
-                    setAnalysisStatus(null);
+                    setAnalysisStatus('idle'); // Status especial para evitar que fetchAnalysis recarregue o antigo
                   }}
                   videoUrl={analysisUrls.video}
                   pdfUrl={analysisUrls.pdf}
