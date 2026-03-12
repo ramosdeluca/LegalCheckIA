@@ -5,6 +5,7 @@ import { Plus, Briefcase, FileText, Clock, ChevronRight, LogOut, User as UserIco
 import { motion, AnimatePresence } from 'motion/react';
 import { UploadAnalysis } from './UploadAnalysis';
 import { AnalysisReport } from './AnalysisReport';
+import { ProfileSettings } from './ProfileSettings';
 
 export const Dashboard: React.FC = () => {
   const { user, signOut } = useAuth();
@@ -17,6 +18,8 @@ export const Dashboard: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [processToDelete, setProcessToDelete] = useState<any | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const { profile } = useAuth();
+  const [showProfileSettings, setShowProfileSettings] = useState(false);
 
   // New Processo Form
   const [numero, setNumero] = useState('');
@@ -242,22 +245,33 @@ export const Dashboard: React.FC = () => {
   return (
     <div className="min-h-screen bg-[#f0ede6] font-sans selection:bg-[#5A5A40]/20">
       {/* Sidebar / Header */}
-      <nav className="bg-white/80 backdrop-blur-xl border-b border-black/5 px-8 py-5 flex items-center justify-between sticky top-0 z-20 shadow-sm">
+      <nav className="bg-white/80 backdrop-blur-xl border-b border-black/5 px-4 md:px-8 py-4 md:py-5 flex items-center justify-between sticky top-0 z-20 shadow-sm">
         <div className="flex items-center gap-4">
           <div className="w-11 h-11 bg-gradient-to-br from-[#5A5A40] to-[#3A3A20] rounded-xl flex items-center justify-center text-white shadow-lg shadow-[#5A5A40]/20">
             <Briefcase size={22} />
           </div>
-          <h1 className="text-2xl font-serif text-[#1a1a1a] tracking-tight">LegalCheck IA</h1>
+          <h1 className="text-xl md:text-2xl font-serif text-[#1a1a1a] tracking-tight">LegalCheck IA</h1>
         </div>
 
-        <div className="flex items-center gap-6">
-          <div className="flex items-center gap-2 text-sm text-gray-600">
-            <UserIcon size={16} />
-            <span>{user?.email}</span>
-          </div>
+        <div className="flex items-center gap-3 md:gap-6">
+          <button
+            onClick={() => setShowProfileSettings(true)}
+            className="flex items-center gap-2 px-3 py-2 text-sm text-gray-600 hover:bg-gray-50 rounded-xl transition-all group"
+          >
+            <div className="w-8 h-8 md:w-9 md:h-9 bg-[#5A5A40]/5 text-[#5A5A40] rounded-full flex items-center justify-center group-hover:bg-[#5A5A40] group-hover:text-white transition-all shadow-sm">
+              <UserIcon size={18} />
+            </div>
+            <div className="hidden sm:flex flex-col items-start -space-y-0.5">
+              <span className="font-bold text-[#1a1a1a] max-w-[150px] truncate">
+                {profile?.full_name || 'Advogado'}
+              </span>
+              <span className="text-[10px] text-gray-400 font-medium">Meu Perfil</span>
+            </div>
+          </button>
+
           <button
             onClick={signOut}
-            className="text-gray-400 hover:text-red-500 transition-colors"
+            className="p-2 text-gray-400 hover:text-red-500 transition-colors hover:bg-red-50 rounded-lg"
           >
             <LogOut size={20} />
           </button>
@@ -296,7 +310,7 @@ export const Dashboard: React.FC = () => {
                 onClick={() => {
                   setActiveProcesso(p);
                 }}
-                className={`w-full text-left p-5 rounded-[24px] border transition-all duration-300 flex items-center justify-between group
+                className={`w-full text-left p-4 md:p-5 rounded-[20px] md:rounded-[24px] border transition-all duration-300 flex items-center justify-between group
                   ${activeProcesso?.id === p.id
                     ? 'bg-white border-[#5A5A40]/30 shadow-lg shadow-[#5A5A40]/5'
                     : 'bg-white/40 backdrop-blur-sm border-transparent hover:bg-white/80 hover:border-black/5 hover:shadow-md'}`}
@@ -512,6 +526,12 @@ export const Dashboard: React.FC = () => {
           </motion.div>
         </div>
       )}
+      {/* Profile Settings Modal */}
+      <AnimatePresence>
+        {showProfileSettings && (
+          <ProfileSettings onClose={() => setShowProfileSettings(false)} />
+        )}
+      </AnimatePresence>
     </div>
   );
 };

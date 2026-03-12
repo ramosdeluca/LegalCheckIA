@@ -67,35 +67,41 @@ export const AnalysisReport: React.FC<AnalysisReportProps> = ({
     if (!reportRef.current) return null;
 
     try {
-      // modern-screenshot is much better at handling modern CSS like oklch/oklab
-      const dataUrl = await domToPng(reportRef.current, {
-        scale: 2,
-        backgroundColor: '#f5f2ed',
-        quality: 1,
-      });
-
       const pdf = new jsPDF('p', 'mm', 'a4');
-      const pdfWidth = pdf.internal.pageSize.getWidth();
-
-      // Create an image to get dimensions
-      const img = new Image();
-      img.src = dataUrl;
-      await new Promise((resolve) => (img.onload = resolve));
-
+      const pageWidth = pdf.internal.pageSize.getWidth();
       const pageHeight = pdf.internal.pageSize.getHeight();
+      const margin = 10;
+      const contentWidth = pageWidth - (2 * margin);
 
-      const imgHeight = (img.height * pdfWidth) / img.width;
-      let heightLeft = imgHeight;
-      let position = 0;
+      let currentY = margin;
 
-      pdf.addImage(dataUrl, 'PNG', 0, position, pdfWidth, imgHeight);
-      heightLeft -= pageHeight;
+      // Pegar todos os elementos que queremos no PDF
+      const elements = reportRef.current.querySelectorAll('.pdf-section');
 
-      while (heightLeft >= 0) {
-        position = heightLeft - imgHeight;
-        pdf.addPage();
-        pdf.addImage(dataUrl, 'PNG', 0, position, pdfWidth, imgHeight);
-        heightLeft -= pageHeight;
+      for (let i = 0; i < elements.length; i++) {
+        const el = elements[i] as HTMLElement;
+
+        // Capturar o elemento individualmente
+        const canvas = await domToPng(el, {
+          scale: 2,
+          backgroundColor: '#f5f2ed',
+          quality: 1,
+        });
+
+        const img = new Image();
+        img.src = canvas;
+        await new Promise((resolve) => (img.onload = resolve));
+
+        const imgHeight = (img.height * contentWidth) / img.width;
+
+        // Se o elemento não couber na página atual, cria uma nova
+        if (currentY + imgHeight > pageHeight - margin) {
+          pdf.addPage();
+          currentY = margin;
+        }
+
+        pdf.addImage(canvas, 'PNG', margin, currentY, contentWidth, imgHeight);
+        currentY += imgHeight + 5; // 5mm de espaço entre cartões
       }
 
       return pdf.output('blob');
@@ -204,94 +210,96 @@ export const AnalysisReport: React.FC<AnalysisReportProps> = ({
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-4 bg-white/60 backdrop-blur-md p-5 rounded-[32px] border border-white shadow-sm">
-        <div className="flex flex-wrap items-center gap-4">
-          {((videoUrls && videoUrls.length > 0) || (pdfUrls && pdfUrls.length > 0) || videoUrl || pdfUrl) && (
-            <div className="flex flex-wrap items-center gap-3 px-5 py-2.5 bg-white/80 rounded-[20px] border border-black/5 shadow-sm">
-              {/* Vídeos/Audios */}
-              {videoUrls && videoUrls.length > 0 ? (
-                videoUrls.map((url, i) => (
-                  <a key={`v-${i}`} href={url} target="_blank" rel="noopener noreferrer" className="text-[10px] font-bold uppercase tracking-widest text-[#5A5A40] hover:text-[#4A4A30] flex items-center gap-1.5 transition-colors">
-                    <Volume2 size={14} /> Áudio {videoUrls.length > 1 ? i + 1 : ''}
-                  </a>
-                ))
-              ) : videoUrl && (
-                <a href={videoUrl} target="_blank" rel="noopener noreferrer" className="text-[10px] font-bold uppercase tracking-widest text-[#5A5A40] hover:text-[#4A4A30] flex items-center gap-1.5 transition-colors">
-                  <Volume2 size={14} /> Áudio Original
+      <div className="flex flex-col gap-4 bg-white/60 backdrop-blur-md p-3 md:p-4 rounded-[28px] md:rounded-[40px] border border-white shadow-sm overflow-visible">
+        {/* Linha 1: Documentos (Áudios e PDFs) */}
+        {((videoUrls && videoUrls.length > 0) || (pdfUrls && pdfUrls.length > 0) || videoUrl || pdfUrl) && (
+          <div className="flex items-center justify-center gap-4 px-4 py-2.5 bg-white/80 rounded-[18px] border border-black/5 shadow-sm overflow-x-auto no-scrollbar whitespace-nowrap w-full">
+            {/* Vídeos/Audios */}
+            {videoUrls && videoUrls.length > 0 ? (
+              videoUrls.map((url, i) => (
+                <a key={`v-${i}`} href={url} target="_blank" rel="noopener noreferrer" className="text-[11px] font-bold uppercase tracking-widest text-[#5A5A40] hover:text-blue-600 flex items-center gap-2 transition-all hover:scale-105">
+                  <Volume2 size={16} className="text-blue-500" /> Áudio {videoUrls.length > 1 ? i + 1 : ''}
                 </a>
-              )}
-
-              {/* Separador se houver ambos */}
-              {((videoUrls?.length || videoUrl) && (pdfUrls?.length || pdfUrl)) && <div className="w-px h-4 bg-gray-200" />}
-
-              {/* PDFs */}
-              {pdfUrls && pdfUrls.length > 0 ? (
-                pdfUrls.map((url, i) => (
-                  <a key={`p-${i}`} href={url} target="_blank" rel="noopener noreferrer" className="text-[10px] font-bold uppercase tracking-widest text-[#5A5A40] hover:text-[#4A4A30] flex items-center gap-1.5 transition-colors">
-                    <FileText size={14} /> PDF {pdfUrls.length > 1 ? i + 1 : ''}
-                  </a>
-                ))
-              ) : pdfUrl && (
-                <a href={pdfUrl} target="_blank" rel="noopener noreferrer" className="text-[10px] font-bold uppercase tracking-widest text-[#5A5A40] hover:text-[#4A4A30] flex items-center gap-1.5 transition-colors">
-                  <FileText size={14} /> PDF Original
-                </a>
-              )}
-            </div>
-          )}
-
-          <div className="flex items-center gap-3">
-            {hasInsights && (
-              <button
-                onClick={() => setShowInsightsModal(true)}
-                className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-full text-xs font-bold uppercase tracking-widest hover:shadow-lg hover:shadow-blue-500/30 transition-all transform active:scale-95"
-              >
-                <Sparkles size={16} className="text-blue-200" />
-                Insights da IA
-              </button>
+              ))
+            ) : videoUrl && (
+              <a href={videoUrl} target="_blank" rel="noopener noreferrer" className="text-[11px] font-bold uppercase tracking-widest text-[#5A5A40] hover:text-blue-600 flex items-center gap-2 transition-all hover:scale-105">
+                <Volume2 size={16} className="text-blue-500" /> Áudio Original
+              </a>
             )}
 
-            <button
-              onClick={handleExportPDF}
-              disabled={isExporting || isSharing}
-              className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-[#5A5A40] to-[#4a4a35] text-white rounded-full text-xs font-bold uppercase tracking-widest hover:shadow-lg hover:shadow-[#5A5A40]/30 transition-all disabled:opacity-50 transform active:scale-95"
-            >
-              <Download size={16} />
-              {isExporting ? 'Processando...' : 'Exportar Relatório'}
-            </button>
+            {/* Separador se houver ambos */}
+            {((videoUrls?.length || videoUrl) && (pdfUrls?.length || pdfUrl)) && <div className="w-px h-5 bg-gray-200" />}
 
-            <button
-              onClick={handleShare}
-              disabled={isExporting || isSharing}
-              className="flex items-center gap-2 px-6 py-3 bg-white border border-gray-200 text-[#5A5A40] rounded-full text-xs font-bold uppercase tracking-widest hover:bg-gray-50 hover:border-gray-300 transition-all disabled:opacity-50 shadow-sm transform active:scale-95"
-            >
-              <Share2 size={16} />
-              {isSharing ? 'Preparando...' : 'Compartilhar'}
-            </button>
+            {/* PDFs */}
+            {pdfUrls && pdfUrls.length > 0 ? (
+              pdfUrls.map((url, i) => (
+                <a key={`p-${i}`} href={url} target="_blank" rel="noopener noreferrer" className="text-[11px] font-bold uppercase tracking-widest text-[#5A5A40] hover:text-red-600 flex items-center gap-2 transition-all hover:scale-105 shrink-0">
+                  <FileText size={16} className="text-red-500" /> PDF {pdfUrls.length > 1 ? i + 1 : ''}
+                </a>
+              ))
+            ) : pdfUrl && (
+              <a href={pdfUrl} target="_blank" rel="noopener noreferrer" className="text-[11px] font-bold uppercase tracking-widest text-[#5A5A40] hover:text-red-600 flex items-center gap-2 transition-all hover:scale-105 shrink-0">
+                <FileText size={16} className="text-red-500" /> PDF Original
+              </a>
+            )}
           </div>
-        </div>
+        )}
 
-        <button
-          onClick={onReset}
-          className="flex items-center gap-2 px-5 py-3 text-xs font-bold uppercase tracking-widest text-gray-400 hover:text-[#5A5A40] transition-all hover:bg-white/80 rounded-full transform active:scale-95"
-        >
-          <ArrowLeft size={16} />
-          Nova Análise
-        </button>
+        {/* Linha 2: Ações */}
+        <div className="flex flex-wrap items-center justify-center gap-3">
+          {hasInsights && (
+            <button
+              onClick={() => setShowInsightsModal(true)}
+              className="flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-full text-[10px] font-bold uppercase tracking-widest hover:shadow-lg hover:shadow-blue-500/30 transition-all transform active:scale-95 shrink-0"
+            >
+              <Sparkles size={14} className="text-blue-200" />
+              Insights IA
+            </button>
+          )}
+
+          <button
+            onClick={handleExportPDF}
+            disabled={isExporting || isSharing}
+            className="flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-r from-[#5A5A40] to-[#4a4a35] text-white rounded-full text-[10px] font-bold uppercase tracking-widest hover:shadow-lg hover:shadow-[#5A5A40]/30 transition-all disabled:opacity-50 transform active:scale-95 shrink-0"
+          >
+            <Download size={14} />
+            {isExporting ? 'Exportando' : 'Exportar PDF'}
+          </button>
+
+          <button
+            onClick={handleShare}
+            disabled={isExporting || isSharing}
+            className="flex items-center justify-center gap-2 px-4 py-2.5 bg-white border border-gray-200 text-[#5A5A40] rounded-full text-[10px] font-bold uppercase tracking-widest hover:bg-gray-50 hover:border-gray-300 transition-all disabled:opacity-50 shadow-sm transform active:scale-95 shrink-0"
+          >
+            <Share2 size={14} />
+            {isSharing ? 'Preparando' : 'Compartilhar'}
+          </button>
+
+          <div className="w-px h-5 bg-gray-200 hidden sm:block" />
+
+          <button
+            onClick={onReset}
+            className="flex items-center justify-center gap-2 px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest text-gray-500 hover:text-[#5A5A40] transition-all hover:bg-white/80 rounded-full transform active:scale-95 shrink-0"
+          >
+            <ArrowLeft size={16} />
+            Nova Análise
+          </button>
+        </div>
       </div>
 
       <div ref={reportRef} className="space-y-6 p-1">
         {/* PDF Header - Only visible in export/report view */}
-        <div className="relative bg-white/80 backdrop-blur-sm rounded-[32px] p-8 md:p-10 border border-white shadow-sm mb-6 overflow-hidden">
+        <div className="pdf-section relative bg-white/80 backdrop-blur-sm rounded-[32px] p-8 md:p-10 border border-white shadow-sm mb-6 overflow-hidden">
           <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-[#5A5A40]/[0.02] rounded-full -translate-y-1/2 translate-x-1/3 pointer-events-none" />
 
           <div className="relative z-10">
-            <div className="flex items-center gap-4 mb-8">
-              <div className="w-14 h-14 bg-gradient-to-br from-[#5A5A40] to-[#3A3A20] rounded-[20px] flex items-center justify-center text-white shadow-lg shadow-[#5A5A40]/20 shrink-0">
-                <Briefcase size={28} />
+            <div className="flex items-center gap-3 mb-6 md:mb-8">
+              <div className="w-10 h-10 md:w-14 md:h-14 bg-gradient-to-br from-[#5A5A40] to-[#3A3A20] rounded-xl md:rounded-[20px] flex items-center justify-center text-white shadow-lg shadow-[#5A5A40]/20 shrink-0">
+                <Briefcase size={22} className="md:w-7 md:h-7" />
               </div>
               <div>
-                <h1 className="text-2xl md:text-3xl font-serif text-[#1a1a1a] leading-tight tracking-tight mb-1">Relatório Oficial de Contradições</h1>
-                <p className="text-xs text-[#5A5A40] uppercase tracking-[0.2em] font-bold">LegalCheck IA • Análise Jurídica</p>
+                <h1 className="text-lg md:text-3xl font-serif text-[#1a1a1a] leading-tight tracking-tight mb-0.5">Relatório Oficial de Contradições</h1>
+                <p className="text-[9px] md:text-xs text-[#5A5A40] uppercase tracking-[0.2em] font-bold">LegalCheck IA • Análise Jurídica</p>
               </div>
             </div>
 
@@ -312,7 +320,7 @@ export const AnalysisReport: React.FC<AnalysisReportProps> = ({
           </div>
         </div>
         {contradicoesLista.length === 0 ? (
-          <div className="bg-white rounded-3xl p-12 text-center border border-black/5 shadow-sm">
+          <div className="pdf-section bg-white rounded-3xl p-12 text-center border border-black/5 shadow-sm">
             <div className="w-16 h-16 bg-green-50 text-green-500 rounded-full flex items-center justify-center mx-auto mb-4">
               <ShieldCheck size={32} />
             </div>
@@ -327,7 +335,7 @@ export const AnalysisReport: React.FC<AnalysisReportProps> = ({
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: index * 0.1 }}
-                className="bg-white/90 backdrop-blur-sm rounded-[32px] border border-white shadow-lg shadow-black/5 overflow-hidden hover:shadow-xl transition-shadow duration-300 group"
+                className="pdf-section bg-white/90 backdrop-blur-sm rounded-[32px] border border-white shadow-lg shadow-black/5 overflow-hidden hover:shadow-xl transition-shadow duration-300 group"
               >
                 <div className="p-5 md:p-6 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-gray-50/50">
                   <div className="flex flex-wrap items-center gap-4">

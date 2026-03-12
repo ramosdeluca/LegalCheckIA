@@ -24,3 +24,11 @@
 body {
   @apply bg-[#f5f2ed] text-[#1a1a1a];
 }
+
+@utility no-scrollbar {
+  ::-webkit-scrollbar {
+    display: none;
+  }
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
