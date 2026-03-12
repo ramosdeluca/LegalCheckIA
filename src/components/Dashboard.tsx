@@ -308,7 +308,11 @@ export const Dashboard: React.FC = () => {
                 key={p.id}
                 whileHover={{ x: 6 }}
                 onClick={() => {
-                  setActiveProcesso(p);
+                  if (activeProcesso?.id === p.id) {
+                    setAnalysisStatus(null);
+                  } else {
+                    setActiveProcesso(p);
+                  }
                 }}
                 className={`w-full text-left p-4 md:p-5 rounded-[20px] md:rounded-[24px] border transition-all duration-300 flex items-center justify-between group
                   ${activeProcesso?.id === p.id
