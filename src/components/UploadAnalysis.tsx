@@ -6,6 +6,7 @@ import { analyzeHearing } from '../services/geminiService';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../AuthContext';
 import { extractAudioFromVideo } from '../utils/audioExtractor';
+import { generateFilesHashes, areHashesEqual } from '../utils/hashUtils';
 
 // Set up PDF.js worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
@@ -60,10 +61,33 @@ export const UploadAnalysis: React.FC<UploadAnalysisProps> = ({ processoId, onAn
 
     setIsAnalyzing(true);
     setError(null);
-    setProgress('Limpando análises anteriores...');
-
     try {
-      // 0. Cleanup old analysis for this process
+      // 0. Gerar Hashes para Cache
+      setProgress('Verificando cache...');
+      const currentVideoHashes = await generateFilesHashes(videoFiles);
+      const currentPdfHashes = await generateFilesHashes(pdfFiles);
+
+      // 0.1 Buscar se já existe uma análise COM ESTES MESMOS arquivos
+      const { data: existingAnalises } = await supabase
+        .from('analises')
+        .select('*')
+        .eq('processo_id', processoId)
+        .eq('status', 'concluido');
+
+      const cacheFound = existingAnalises?.find(a =>
+        areHashesEqual(a.video_hashes || [], currentVideoHashes) &&
+        areHashesEqual(a.pdf_hashes || [], currentPdfHashes)
+      );
+
+      if (cacheFound) {
+        setProgress('Análise encontrada na nossa base! Redirecionando...');
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        onAnalysisStarted();
+        return;
+      }
+
+      // 0.2 Se chegar aqui, os arquivos ou o processo são novos. 
+      // Cleanup old analysis (opcional, dependendo se você quer manter histórico ou apenas uma por processo)
       const { data: oldAnalises } = await supabase
         .from('analises')
         .select('id, video_url, pdf_url, video_urls, pdf_urls')
@@ -72,16 +96,6 @@ export const UploadAnalysis: React.FC<UploadAnalysisProps> = ({ processoId, onAn
       if (oldAnalises && oldAnalises.length > 0) {
         const filesToDelete: string[] = [];
         oldAnalises.forEach(a => {
-          // Legacy check
-          if (a.video_url) {
-            const path = a.video_url.split('/storage/v1/object/public/legalcheck/')[1];
-            if (path) filesToDelete.push(path);
-          }
-          if (a.pdf_url) {
-            const path = a.pdf_url.split('/storage/v1/object/public/legalcheck/')[1];
-            if (path) filesToDelete.push(path);
-          }
-          // New format check
           if (a.video_urls && Array.isArray(a.video_urls)) {
             a.video_urls.forEach((url: string) => {
               const path = url.split('/storage/v1/object/public/legalcheck/')[1];
@@ -132,16 +146,18 @@ export const UploadAnalysis: React.FC<UploadAnalysisProps> = ({ processoId, onAn
         pdfUrls.push(publicUrl);
       }
 
-      // 3. Save to DB
+      // 3. Save to DB (com hashes)
       const { error: dbError } = await supabase.from('analises').insert({
         processo_id: processoId,
         user_id: user.id,
         status: 'processando',
         resultado_json: null,
-        video_url: mediaUrls[0], // backward compatibility
-        pdf_url: pdfUrls[0], // backward compatibility
+        video_url: mediaUrls[0],
+        pdf_url: pdfUrls[0],
         video_urls: mediaUrls,
-        pdf_urls: pdfUrls
+        pdf_urls: pdfUrls,
+        video_hashes: currentVideoHashes,
+        pdf_hashes: currentPdfHashes
       });
 
       if (dbError) throw dbError;

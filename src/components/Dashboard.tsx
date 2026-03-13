@@ -24,6 +24,7 @@ export const Dashboard: React.FC = () => {
   // New Processo Form
   const [numero, setNumero] = useState('');
   const [cliente, setCliente] = useState('');
+  const [modalError, setModalError] = useState<string | null>(null);
 
   const formatProcessNumber = (value: string) => {
     const digits = value.replace(/\D/g, '');
@@ -141,6 +142,24 @@ export const Dashboard: React.FC = () => {
   const handleCreateProcesso = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
+    setModalError(null);
+
+    // Verificar se o processo já existe
+    const { data: existing, error: checkError } = await supabase
+      .from('processos')
+      .select('id')
+      .eq('numero_processo', numero)
+      .maybeSingle();
+
+    if (existing) {
+      setModalError('Este número de processo já está cadastrado.');
+      return;
+    }
+
+    if (checkError) {
+      setModalError('Erro ao verificar processo. Tente novamente.');
+      return;
+    }
 
     const { data, error } = await supabase
       .from('processos')
@@ -157,7 +176,10 @@ export const Dashboard: React.FC = () => {
       setShowNewProcessoModal(false);
       setNumero('');
       setCliente('');
+      setModalError(null);
       setActiveProcesso(data);
+    } else {
+      setModalError('Erro ao criar processo. Tente novamente.');
     }
   };
 
@@ -488,6 +510,12 @@ export const Dashboard: React.FC = () => {
             className="bg-white rounded-[32px] shadow-2xl p-8 max-w-md w-full"
           >
             <h2 className="text-2xl font-serif text-[#1a1a1a] mb-6">Novo Processo</h2>
+            {modalError && (
+              <div className="mb-4 bg-red-50 border border-red-100 text-red-600 p-3 rounded-xl flex items-center gap-2 text-sm">
+                <AlertIcon size={16} />
+                <span>{modalError}</span>
+              </div>
+            )}
             <form onSubmit={handleCreateProcesso} className="space-y-5">
               <div className="space-y-2">
                 <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider ml-1">Número do Processo</label>
