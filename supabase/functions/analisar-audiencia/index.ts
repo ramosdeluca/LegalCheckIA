@@ -18,7 +18,7 @@ DIRETRIZES DE ANÁLISE (CRÍTICO):
 - Identifique e analise o depoimento de CADA pessoa (Autor, Réu, Testemunha 1, 2, 3, etc.).
 - Compare o depoimento com o PDF (Contradição Documental).
 - Compare depoimentos entre diferentes testemunhas (Contradição Inter-testemunhal).
-- EXAUSTIVIDADE (CRÍTICO): Não se limite a um pequeno número de itens. Identifique TODAS as divergências possíveis, desde as graves até as menores. O objetivo é um relatório completo e minucioso. Se existirem 15 contradições, liste as 15.
+- RELEVÂNCIA (CRÍTICO): Concentre-se nas divergências mais importantes. O objetivo é um relatório focado. Liste NO MÁXIMO as 5 contradições mais relevantes.
 - TIMESTAMP: Formato "Áudio X - MM:SS". Você deve identificar em qual arquivo a fala ocorreu e indicar o tempo exato. Exemplo: "Áudio 1 - 05:20".
 - NUMERAÇÃO DE ARQUIVOS: A numeração de arquivos (Áudio 1, 2, 3... e PDF 1, 2, 3...) SEMPRE começa em 1. NUNCA use "Áudio 0".
 - NÃO retorne "00:00" a menos que a fala tenha ocorrido exatamente no início do arquivo. Você DEVE ouvir o áudio para encontrar o ponto exato da fala.
@@ -30,7 +30,7 @@ REGRAS DE PREENCHIMENTO:
    - "timestamp": Formato "Áudio X - MM:SS". Identifique o arquivo (1, 2, 3...) e o tempo preciso.
    - "o_que_foi_dito": Deve conter DE QUEM é a fala e APENAS o que foi afirmado no vídeo/áudio no timestamp, preferencialmente entre aspas. Exemplo: "Testemunha 1: '...'".
    - "o_que_diz_o_processo": Deve conter APENAS a prova documental (PDF) ou depoimento anterior que contradiz a fala acima.
-   - "explicacao": Forneça uma análise técnica detalhada (aproximadamente 4 linhas) sobre o impacto jurídico dessa contradição para o resultado do processo.
+   - "explicacao": Forneça uma análise técnica concisa (no máximo 2 linhas) sobre o impacto jurídico dessa contradição para o resultado do processo.
 `;
 
 // Helper para upload de arquivos via REST API (Manual Multipart/Related) - OTIMIZADO PARA RAM
