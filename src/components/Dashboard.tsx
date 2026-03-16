@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../AuthContext';
-import { Plus, Briefcase, FileText, Clock, ChevronRight, LogOut, User as UserIcon, Loader2, Search, Trash2, AlertTriangle as AlertIcon } from 'lucide-react';
+import { Plus, Scale, FileText, Clock, ChevronRight, LogOut, User as UserIcon, Loader2, Search, Trash2, AlertTriangle as AlertIcon } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { UploadAnalysis } from './UploadAnalysis';
 import { AnalysisReport } from './AnalysisReport';
@@ -270,7 +270,7 @@ export const Dashboard: React.FC = () => {
       <nav className="bg-white/80 backdrop-blur-xl border-b border-black/5 px-4 md:px-8 py-4 md:py-5 flex items-center justify-between sticky top-0 z-20 shadow-sm">
         <div className="flex items-center gap-4">
           <div className="w-11 h-11 bg-gradient-to-br from-[#5A5A40] to-[#3A3A20] rounded-xl flex items-center justify-center text-white shadow-lg shadow-[#5A5A40]/20">
-            <Briefcase size={22} />
+            <Scale size={22} />
           </div>
           <h1 className="text-xl md:text-2xl font-serif text-[#1a1a1a] tracking-tight">LegalCheck IA</h1>
         </div>
@@ -443,7 +443,7 @@ export const Dashboard: React.FC = () => {
           ) : (
             <div className="h-full min-h-[400px] flex flex-col items-center justify-center text-center bg-white/30 rounded-[40px] border border-dashed border-gray-300 p-12">
               <div className="w-20 h-20 bg-gray-100 text-gray-300 rounded-full flex items-center justify-center mb-6">
-                <Briefcase size={40} />
+                <Scale size={40} />
               </div>
               <h2 className="text-xl font-serif text-gray-400 mb-2">Selecione um processo</h2>
               <p className="text-sm text-gray-400 max-w-xs">Escolha um processo na lista ao lado ou crie um novo para iniciar a análise de contradições.</p>

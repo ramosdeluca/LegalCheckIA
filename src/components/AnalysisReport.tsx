@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { AlertTriangle, Clock, FileText, ArrowLeft, ShieldAlert, ShieldCheck, Info, Volume2, Download, Share2, Briefcase, Sparkles, X } from 'lucide-react';
+import { AlertTriangle, Clock, FileText, ArrowLeft, ShieldAlert, ShieldCheck, Info, Volume2, Download, Share2, Scale, Sparkles, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import jsPDF from 'jspdf';
 import { domToPng } from 'modern-screenshot';
@@ -295,7 +295,7 @@ export const AnalysisReport: React.FC<AnalysisReportProps> = ({
           <div className="relative z-10">
             <div className="flex items-center gap-3 mb-6 md:mb-8">
               <div className="w-10 h-10 md:w-14 md:h-14 bg-gradient-to-br from-[#5A5A40] to-[#3A3A20] rounded-xl md:rounded-[20px] flex items-center justify-center text-white shadow-lg shadow-[#5A5A40]/20 shrink-0">
-                <Briefcase size={22} className="md:w-7 md:h-7" />
+                <Scale size={22} className="md:w-7 md:h-7" />
               </div>
               <div>
                 <h1 className="text-lg md:text-3xl font-serif text-[#1a1a1a] leading-tight tracking-tight mb-0.5">Relatório Oficial de Contradições</h1>
