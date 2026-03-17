@@ -72,6 +72,9 @@ export const Dashboard: React.FC = () => {
           videos: data.video_urls,
           pdfs: data.pdf_urls
         });
+      } else if (data.status === 'erro') {
+        setAnalysisResult(data.resultado_json);
+        setAnalysisUrls({});
       } else {
         setAnalysisResult(null);
         setAnalysisUrls({});
@@ -83,18 +86,22 @@ export const Dashboard: React.FC = () => {
     }
   };
 
-  // Reset analysis state when switching processes
+  // Reset analysis state when switching processes to 'loading' instead of 'null'
+  // This avoids flickering the Upload screen while we check the DB for existing analysis
   useEffect(() => {
-    setAnalysisStatus(null);
-    setAnalysisResult(null);
-    setAnalysisUrls({});
+    if (activeProcesso?.id) {
+      setAnalysisStatus('loading');
+      setAnalysisResult(null);
+      setAnalysisUrls({});
+    }
   }, [activeProcesso?.id]);
 
   useEffect(() => {
     if (!activeProcesso) return;
 
-    if (analysisStatus === null) {
+    if (analysisStatus === 'loading' || analysisStatus === null) {
       fetchAnalysis(activeProcesso.id);
+      return;
     }
 
     // Como o Supabase Realtime requer configuração de "Publication" no painel SQL para a tabela 'analises'
@@ -124,6 +131,9 @@ export const Dashboard: React.FC = () => {
               videos: data.video_urls,
               pdfs: data.pdf_urls
             });
+            clearInterval(pollInterval);
+          } else if (data.status === 'erro') {
+            setAnalysisResult(data.resultado_json);
             clearInterval(pollInterval);
           }
         }
@@ -391,7 +401,14 @@ export const Dashboard: React.FC = () => {
                 </div>
               </div>
 
-              {analysisStatus === 'processando' || analysisStatus === 'processando_ia' ? (
+              {analysisStatus === 'loading' ? (
+                <div className="h-full min-h-[400px] flex items-center justify-center bg-white/60 backdrop-blur-md rounded-[40px] border border-white shadow-sm">
+                  <div className="flex flex-col items-center gap-4">
+                    <Loader2 className="animate-spin text-[#5A5A40]" size={40} />
+                    <p className="text-gray-500 font-medium">Verificando status da análise...</p>
+                  </div>
+                </div>
+              ) : analysisStatus === 'processando' || analysisStatus === 'processando_ia' ? (
                 <div className="h-full min-h-[400px] flex flex-col items-center justify-center text-center bg-white/60 backdrop-blur-md rounded-[40px] border border-white shadow-sm p-12 relative overflow-hidden">
                   <div className="absolute top-0 right-0 w-64 h-64 bg-blue-500/5 rounded-full blur-3xl pointer-events-none" />
                   <div className="absolute bottom-0 left-0 w-64 h-64 bg-indigo-500/5 rounded-full blur-3xl pointer-events-none" />
@@ -414,6 +431,37 @@ export const Dashboard: React.FC = () => {
                       <Clock size={14} className="animate-pulse" />
                       Você pode fechar esta página ou analisar outros processos
                     </div>
+                  </div>
+                </div>
+              ) : analysisStatus === 'erro' ? (
+                <div className="h-full min-h-[400px] flex flex-col items-center justify-center text-center bg-white/60 backdrop-blur-md rounded-[40px] border border-red-100 shadow-sm p-12 relative overflow-hidden">
+                  <div className="absolute top-0 right-0 w-64 h-64 bg-red-500/5 rounded-full blur-3xl pointer-events-none" />
+                  
+                  <div className="relative z-10 flex flex-col items-center">
+                    <div className="w-20 h-20 bg-red-50 text-red-500 rounded-full flex items-center justify-center mb-6 shadow-sm">
+                      <AlertIcon size={40} />
+                    </div>
+
+                    <h2 className="text-2xl font-serif text-[#1a1a1a] mb-4 tracking-tight">Ops! Algo deu errado</h2>
+                    <p className="text-gray-500 max-w-sm mx-auto mb-6 font-medium leading-relaxed">
+                      Não foi possível completar sua requisição. Por favor, tente novamente mais tarde.
+                    </p>
+                    
+                    {analysisResult?.erro && (
+                      <div className="mb-8 p-4 bg-gray-50 rounded-2xl border border-gray-100 font-mono text-xs text-red-400 max-w-md break-all">
+                        Erro: {analysisResult.erro}
+                      </div>
+                    )}
+
+                    <button
+                      onClick={() => {
+                        setAnalysisResult(null);
+                        setAnalysisStatus('idle');
+                      }}
+                      className="px-8 py-3 bg-[#5A5A40] text-white rounded-full font-semibold hover:bg-[#4a4a35] transition-all shadow-lg shadow-[#5A5A40]/20"
+                    >
+                      Tentar Novamente
+                    </button>
                   </div>
                 </div>
               ) : analysisResult ? (

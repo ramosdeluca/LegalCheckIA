@@ -56,7 +56,7 @@ export const UploadAnalysis: React.FC<UploadAnalysisProps> = ({ processoId, onAn
   };
 
   const handleStartAnalysis = async () => {
-    if (videoFiles.length === 0 || pdfFiles.length === 0) return;
+    if (videoFiles.length === 0 && pdfFiles.length === 0) return;
     if (!user) return;
 
     setIsAnalyzing(true);
@@ -283,7 +283,7 @@ export const UploadAnalysis: React.FC<UploadAnalysisProps> = ({ processoId, onAn
 
       <button
         onClick={handleStartAnalysis}
-        disabled={videoFiles.length === 0 || pdfFiles.length === 0 || isAnalyzing}
+        disabled={(videoFiles.length === 0 && pdfFiles.length === 0) || isAnalyzing}
         className="w-full relative overflow-hidden bg-[#5A5A40] text-white rounded-[24px] py-5 font-semibold text-lg hover:bg-[#4a4a35] transition-all flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed shadow-xl shadow-[#5A5A40]/30 transform active:scale-[0.98]"
       >
         {isAnalyzing && (
