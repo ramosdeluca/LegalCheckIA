@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { AlertTriangle, Clock, FileText, ArrowLeft, ShieldAlert, ShieldCheck, Info, Volume2, Download, Share2, Scale, Sparkles, X } from 'lucide-react';
+import { AlertTriangle, Clock, FileText, ArrowLeft, ShieldAlert, ShieldCheck, Info, Volume2, Download, Share2, Scale, Sparkles, X, MessageSquare, ChevronLeft } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import jsPDF from 'jspdf';
 import { domToPng } from 'modern-screenshot';
@@ -45,6 +45,12 @@ export const AnalysisReport: React.FC<AnalysisReportProps> = ({
   const [isExporting, setIsExporting] = useState(false);
   const [isSharing, setIsSharing] = useState(false);
   const [showInsightsModal, setShowInsightsModal] = useState(false);
+  const [activeView, setActiveView] = useState<'report' | 'chat'>('report');
+
+  // Resetar visualização ao mudar de análise
+  React.useEffect(() => {
+    setActiveView('report');
+  }, [analiseId]);
 
   const isNewFormat = !Array.isArray(result) && result?.contradicoes;
   const contradicoesLista: Contradicao[] = isNewFormat ? result.contradicoes : (Array.isArray(result) ? result : []);
@@ -206,6 +212,26 @@ export const AnalysisReport: React.FC<AnalysisReportProps> = ({
               Insights IA
             </button>
           )}
+
+          <button
+            onClick={() => setActiveView(activeView === 'report' ? 'chat' : 'report')}
+            className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-full text-[10px] font-bold uppercase tracking-widest transition-all transform active:scale-95 shrink-0
+              ${activeView === 'chat' 
+                ? 'bg-blue-50 text-blue-600 border border-blue-200' 
+                : 'bg-gradient-to-r from-[#5A5A40] to-[#4a4a35] text-white shadow-md hover:shadow-lg'}`}
+          >
+            {activeView === 'report' ? (
+              <>
+                <MessageSquare size={14} />
+                Chat Jurídico IA
+              </>
+            ) : (
+              <>
+                <FileText size={14} />
+                Ver Relatório
+              </>
+            )}
+          </button>
           <button
             onClick={handleExportPDF}
             disabled={isExporting || isSharing}
@@ -233,101 +259,145 @@ export const AnalysisReport: React.FC<AnalysisReportProps> = ({
         </div>
       </div>
 
-      <div ref={reportRef} className="space-y-6 p-1">
-        <div className="pdf-section relative bg-white/80 backdrop-blur-sm rounded-[32px] p-8 md:p-10 border border-white shadow-sm mb-6 overflow-hidden">
-          <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-[#5A5A40]/[0.02] rounded-full -translate-y-1/2 translate-x-1/3 pointer-events-none" />
-          <div className="relative z-10">
-            <div className="flex items-center gap-3 mb-6 md:mb-8">
-              <div className="w-10 h-10 md:w-14 md:h-14 bg-gradient-to-br from-[#5A5A40] to-[#3A3A20] rounded-xl md:rounded-[20px] flex items-center justify-center text-white shadow-lg shadow-[#5A5A40]/20 shrink-0">
-                <Scale size={22} className="md:w-7 md:h-7" />
-              </div>
-              <div>
-                <h1 className="text-lg md:text-3xl font-serif text-[#1a1a1a] leading-tight tracking-tight mb-0.5">Relatório Oficial de Contradições</h1>
-                <p className="text-[9px] md:text-xs text-[#5A5A40] uppercase tracking-[0.2em] font-bold">LegalCheck IA • Análise Jurídica</p>
+      <AnimatePresence mode="wait">
+        {activeView === 'report' ? (
+          <motion.div 
+            key="report-view"
+            initial={{ opacity: 0, x: -20 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 20 }}
+            ref={reportRef} 
+            className="space-y-6 p-1"
+          >
+            <div className="pdf-section relative bg-white/80 backdrop-blur-sm rounded-[32px] p-8 md:p-10 border border-white shadow-sm mb-6 overflow-hidden">
+              <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-[#5A5A40]/[0.02] rounded-full -translate-y-1/2 translate-x-1/3 pointer-events-none" />
+              <div className="relative z-10">
+                <div className="flex items-center gap-3 mb-6 md:mb-8">
+                  <div className="w-10 h-10 md:w-14 md:h-14 bg-gradient-to-br from-[#5A5A40] to-[#3A3A20] rounded-xl md:rounded-[20px] flex items-center justify-center text-white shadow-lg shadow-[#5A5A40]/20 shrink-0">
+                    <Scale size={22} className="md:w-7 md:h-7" />
+                  </div>
+                  <div>
+                    <h1 className="text-lg md:text-3xl font-serif text-[#1a1a1a] leading-tight tracking-tight mb-0.5">Relatório Oficial de Contradições</h1>
+                    <p className="text-[9px] md:text-xs text-[#5A5A40] uppercase tracking-[0.2em] font-bold">LegalCheck IA • Análise Jurídica</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8 pt-6 border-t border-gray-100">
+                  <div>
+                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Número do Processo</p>
+                    <p className="text-base md:text-lg font-medium text-[#1a1a1a] break-all">{processNumber || 'Não informado'}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Cliente</p>
+                    <p className="text-base md:text-lg font-medium text-[#1a1a1a] break-words">{clientName || 'Não informado'}</p>
+                  </div>
+                  <div className="col-span-2">
+                    <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Data da Análise</p>
+                    <p className="text-sm text-gray-600">{new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
+                  </div>
+                </div>
               </div>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8 pt-6 border-t border-gray-100">
-              <div>
-                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Número do Processo</p>
-                <p className="text-base md:text-lg font-medium text-[#1a1a1a] break-all">{processNumber || 'Não informado'}</p>
+            {contradicoesLista.length === 0 ? (
+              <div className="pdf-section bg-white rounded-3xl p-12 text-center border border-black/5 shadow-sm">
+                <div className="w-16 h-16 bg-green-50 text-green-500 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <ShieldCheck size={32} />
+                </div>
+                <h3 className="text-xl font-serif text-[#1a1a1a] mb-2">Nenhuma contradição encontrada</h3>
+                <p className="text-gray-500">A IA não detectou divergências significativas entre o vídeo e o processo.</p>
               </div>
-              <div>
-                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Cliente</p>
-                <p className="text-base md:text-lg font-medium text-[#1a1a1a] break-words">{clientName || 'Não informado'}</p>
+            ) : (
+              <div className="grid gap-6">
+                {contradicoesLista.map((item, index) => (
+                  <motion.div
+                    key={index}
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: index * 0.1 }}
+                    className="pdf-section bg-white/90 backdrop-blur-sm rounded-[32px] border border-white shadow-lg shadow-black/5 overflow-hidden hover:shadow-xl transition-shadow duration-300 group"
+                  >
+                    <div className="p-5 md:p-6 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-gray-50/50">
+                      <div className="flex flex-wrap items-center gap-4">
+                        <div className="flex items-center gap-2 px-4 py-1.5 bg-white rounded-full border border-gray-200 text-xs font-mono font-bold text-[#5A5A40] shadow-sm">
+                          <Clock size={16} />
+                          {item.timestamp}
+                        </div>
+                        <span className="text-xs font-bold uppercase tracking-[0.15em] text-[#5A5A40]/70">
+                          TIPO: {item.tipo_contradicao}
+                        </span>
+                      </div>
+                      <div className={`flex items-center gap-2 px-4 py-1.5 rounded-full border text-xs font-extrabold uppercase tracking-wider self-start sm:self-auto shrink-0 shadow-sm ${getGravidadeColor(item.gravidade)}`}>
+                        {getGravidadeIcon(item.gravidade)}
+                        Gravidade {item.gravidade}
+                      </div>
+                    </div>
+                    <div className="p-8 grid grid-cols-1 md:grid-cols-2 gap-8">
+                      <div className="space-y-3">
+                        <div className="flex items-center gap-2 text-xs font-bold text-gray-400 uppercase tracking-widest">
+                          <AlertTriangle size={14} className="text-orange-400" />
+                          Dito na Audiência
+                        </div>
+                        <p className="text-[#1a1a1a] leading-relaxed italic">"{item.o_que_foi_dito}"</p>
+                      </div>
+                      <div className="space-y-3">
+                        <div className="flex items-center gap-2 text-xs font-bold text-gray-400 uppercase tracking-widest">
+                          <FileText size={14} className="text-blue-400" />
+                          Consta no Processo
+                        </div>
+                        <p className="text-[#1a1a1a] leading-relaxed italic">"{item.o_que_diz_o_processo}"</p>
+                      </div>
+                      <div className="md:col-span-2 pt-4 border-t border-gray-50">
+                        <div className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Análise Jurídica</div>
+                        <p className="text-gray-600 leading-relaxed text-sm">{item.explicacao}</p>
+                      </div>
+                    </div>
+                  </motion.div>
+                ))}
               </div>
-              <div className="col-span-2">
-                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Data da Análise</p>
-                <p className="text-sm text-gray-600">{new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
-              </div>
-            </div>
-          </div>
-        </div>
-        {contradicoesLista.length === 0 ? (
-          <div className="pdf-section bg-white rounded-3xl p-12 text-center border border-black/5 shadow-sm">
-            <div className="w-16 h-16 bg-green-50 text-green-500 rounded-full flex items-center justify-center mx-auto mb-4">
-              <ShieldCheck size={32} />
-            </div>
-            <h3 className="text-xl font-serif text-[#1a1a1a] mb-2">Nenhuma contradição encontrada</h3>
-            <p className="text-gray-500">A IA não detectou divergências significativas entre o vídeo e o processo.</p>
-          </div>
+            )}
+          </motion.div>
         ) : (
-          <div className="grid gap-6">
-            {contradicoesLista.map((item, index) => (
-              <motion.div
-                key={index}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: index * 0.1 }}
-                className="pdf-section bg-white/90 backdrop-blur-sm rounded-[32px] border border-white shadow-lg shadow-black/5 overflow-hidden hover:shadow-xl transition-shadow duration-300 group"
-              >
-                <div className="p-5 md:p-6 border-b border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-gray-50/50">
-                  <div className="flex flex-wrap items-center gap-4">
-                    <div className="flex items-center gap-2 px-4 py-1.5 bg-white rounded-full border border-gray-200 text-xs font-mono font-bold text-[#5A5A40] shadow-sm">
-                      <Clock size={16} />
-                      {item.timestamp}
-                    </div>
-                    <span className="text-xs font-bold uppercase tracking-[0.15em] text-[#5A5A40]/70">
-                      TIPO: {item.tipo_contradicao}
-                    </span>
-                  </div>
-                  <div className={`flex items-center gap-2 px-4 py-1.5 rounded-full border text-xs font-extrabold uppercase tracking-wider self-start sm:self-auto shrink-0 shadow-sm ${getGravidadeColor(item.gravidade)}`}>
-                    {getGravidadeIcon(item.gravidade)}
-                    Gravidade {item.gravidade}
-                  </div>
+          <motion.div
+            key="chat-view"
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: -20 }}
+            className="space-y-4"
+          >
+            {/* Header simplificado para o Chat com dados do processo */}
+            <div className="bg-white/80 backdrop-blur-sm rounded-[24px] p-4 border border-white shadow-sm flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <button 
+                  onClick={() => setActiveView('report')}
+                  className="flex items-center gap-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-full transition-colors text-[#5A5A40] text-[10px] font-bold uppercase tracking-widest"
+                >
+                  <ChevronLeft size={16} />
+                  Voltar ao Relatório
+                </button>
+                <div className="w-px h-8 bg-gray-200 mx-2 hidden sm:block" />
+                <div>
+                  <h4 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Processo em Análise</h4>
+                  <p className="text-sm font-medium text-[#1a1a1a]">{processNumber}</p>
                 </div>
-                <div className="p-8 grid grid-cols-1 md:grid-cols-2 gap-8">
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-2 text-xs font-bold text-gray-400 uppercase tracking-widest">
-                      <AlertTriangle size={14} className="text-orange-400" />
-                      Dito na Audiência
-                    </div>
-                    <p className="text-[#1a1a1a] leading-relaxed italic">"{item.o_que_foi_dito}"</p>
-                  </div>
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-2 text-xs font-bold text-gray-400 uppercase tracking-widest">
-                      <FileText size={14} className="text-blue-400" />
-                      Consta no Processo
-                    </div>
-                    <p className="text-[#1a1a1a] leading-relaxed italic">"{item.o_que_diz_o_processo}"</p>
-                  </div>
-                  <div className="md:col-span-2 pt-4 border-t border-gray-50">
-                    <div className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Análise Jurídica</div>
-                    <p className="text-gray-600 leading-relaxed text-sm">{item.explicacao}</p>
-                  </div>
+                <div className="hidden sm:block w-px h-8 bg-gray-100 mx-2" />
+                <div className="hidden sm:block">
+                  <h4 className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Cliente</h4>
+                  <p className="text-sm font-medium text-[#1a1a1a]">{clientName}</p>
                 </div>
-              </motion.div>
-            ))}
-          </div>
-        )}
-      </div>
+              </div>
+              <div className="flex items-center gap-2 px-3 py-1 bg-green-50 text-green-600 rounded-full text-[10px] font-bold uppercase tracking-wider border border-green-100 whitespace-nowrap hidden md:flex">
+                <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
+                Chat Ativo
+              </div>
+            </div>
 
-      <div className="mt-8">
-        <AnalysisChat 
-          analiseId={analiseId} 
-          processoId={processoId} 
-          cacheExpiry={cacheExpiry} 
-        />
-      </div>
+            <AnalysisChat 
+              analiseId={analiseId} 
+              processoId={processoId} 
+              cacheExpiry={cacheExpiry} 
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <AnimatePresence>
         {showInsightsModal && hasInsights && (
