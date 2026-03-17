@@ -14,23 +14,23 @@ const SYSTEM_INSTRUCTION = `
 Você é um Engenheiro Jurídico de elite, especializado em análise minuciosa de audiências judiciais e processos complexos.
 Sua tarefa é realizar uma auditoria completa dos arquivos anexados (áudio/vídeo da audiência e/ou PDF do processo) para identificar contradições, fatos relevantes e fornecer uma síntese conclusiva.
 
-DIRETRIZES DE ANÁLISE (CRÍTICO):
+DIRETRIZES GERAIS (Sempre siga estas regras):
 - Identifique e analise o depoimento de CADA pessoa (Autor, Réu, Testemunha 1, 2, 3, etc.).
-- Compare o depoimento com o PDF (Contradição Documental).
-- Compare depoimentos entre diferentes testemunhas (Contradição Inter-testemunhal).
-- RELEVÂNCIA (CRÍTICO): Concentre-se nas divergências mais importantes. O objetivo é um relatório focado. Liste NO MÁXIMO as 5 contradições mais relevantes.
-- TIMESTAMP: Formato "Áudio X - MM:SS". Você deve identificar em qual arquivo a fala ocorreu e indicar o tempo exato. Exemplo: "Áudio 1 - 05:20".
-- NUMERAÇÃO DE ARQUIVOS: A numeração de arquivos (Áudio 1, 2, 3... e PDF 1, 2, 3...) SEMPRE começa em 1. NUNCA use "Áudio 0".
-- NÃO retorne "00:00" a menos que a fala tenha ocorrido exatamente no início do arquivo. Você DEVE ouvir o áudio para encontrar o ponto exato da fala.
+- Compare o depoimento com o PDF (Contradição Documental) e entre testemunhas.
+- TIMESTAMP: Formato "Áudio X - MM:SS". Identifique o arquivo e o tempo exato (NUNCA use 00:00 se não for o início).
+- NUMERAÇÃO: Áudio 1, 2, 3... PDF 1, 2, 3... (Sempre começa em 1).
+- Seja técnico, imparcial e extremamente detalhista.
+`;
 
-REGRAS DE PREENCHIMENTO:
-1. "resumo_executivo": Forneça um parágrafo detalhado resumindo as principais constatações da análise panorâmica do processo.
-2. "analise_tendencia": Realize uma análise profunda e técnica apontando a tendência geral da prova oral (ex: credibilidade dos depoimentos, fragilidades encontradas, robustez das provas documentais vs. orais). Seja analítico.
-3. Para cada item na lista de "contradicoes":
-   - "timestamp": Formato "Áudio X - MM:SS". Identifique o arquivo (1, 2, 3...) e o tempo preciso.
-   - "o_que_foi_dito": Deve conter DE QUEM é a fala e APENAS o que foi afirmado no vídeo/áudio no timestamp, preferencialmente entre aspas. Exemplo: "Testemunha 1: '...'".
-   - "o_que_diz_o_processo": Deve conter APENAS a prova documental (PDF) ou depoimento anterior que contradiz a fala acima.
-   - "explicacao": Forneça uma análise técnica concisa (no máximo 2 linhas) sobre o impacto jurídico dessa contradição para o resultado do processo.
+const ANALYSIS_PROMPT = `
+REQUISITO DE FORMATAÇÃO (Obrigatório retornar em JSON):
+1. "resumo_executivo": Forneça um parágrafo detalhado resumindo as principais constatações.
+2. "analise_tendencia": Realize uma análise profunda e técnica apontando a tendência geral da prova.
+3. "contradicoes": Liste no máximo as 5 contradições mais relevantes contendo:
+   - "timestamp": Formato "Áudio X - MM:SS".
+   - "o_que_foi_dito": Personagem + fala precisa.
+   - "o_que_diz_o_processo": Prova documental/depoimento contraditório.
+   - "explicacao": Impacto jurídico (máx 2 linhas).
 `;
 
 // Helper para upload de arquivos via REST API (Resumable Upload) - STREAMING PURO (MEMÓRIA EFICIENTE)
@@ -120,6 +120,35 @@ async function deleteGeminiFile(fileName: string) {
   await fetch(url, { method: 'DELETE' }).catch(console.error);
 }
 
+// Helper para criar Context Cache no Gemini (v1beta)
+async function createGeminiCache(parts: any[], model: string = "models/gemini-2.5-flash", systemInstruction?: string) {
+  const url = `https://generativelanguage.googleapis.com/v1beta/cachedContents?key=${geminiApiKey}`;
+  
+  const body: any = {
+    model: model,
+    contents: [{ role: "user", parts: parts }],
+    ttl: "14400s", // 4 horas
+    display_name: `analise-${Date.now()}`
+  };
+
+  if (systemInstruction) {
+    body.system_instruction = { parts: [{ text: systemInstruction }] };
+  }
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`Gemini Cache Error: ${response.status} - ${errText}`);
+  }
+
+  return await response.json();
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
@@ -160,10 +189,10 @@ serve(async (req) => {
     }
 
     const googleFiles: any[] = [];
-    const contentsParts: any[] = [];
+    const cacheParts: any[] = [];
 
     try {
-      // 1. Processar arquivos SEQUENCIALMENTE com STREAMING para economia de RAM
+      // 1. Processar arquivos SEQUENCIALMENTE com STREAMING
       console.log(`Processando ${videoUrls.length} mídias e ${pdfUrls.length} PDFs...`);
       
       const fileTasks = [
@@ -173,34 +202,35 @@ serve(async (req) => {
 
       for (const task of fileTasks) {
         const path = task.url.split('/storage/v1/object/public/legalcheck/')[1];
-        console.log(`[PROCESSANDO] ${task.type}: ${path}`);
-        
-        // Obter URL pública para streaming
         const { data: { publicUrl } } = supabase.storage.from('legalcheck').getPublicUrl(path);
 
         const file = await uploadToGemini(publicUrl, path);
-        console.log(`[OK] ${task.type}: ${path}`);
-        
         googleFiles.push(file);
-        contentsParts.push({ 
+        
+        cacheParts.push({ 
           text: `${task.type === 'video' ? 'Arquivo de Áudio/Vídeo' : 'Documento Processual PDF'}: ${path}` 
         });
-        contentsParts.push({
+        cacheParts.push({
           file_data: { file_uri: file.uri, mime_type: file.mimeType }
         });
       }
 
-      // 2. Adicionar Instrução e Gerar
-      contentsParts.push({
-        text: `ANÁLISE JURÍDICA REQUERIDA:\n\nInstrução:\nAnalise os arquivos anexos. Dependendo do que foi enviado, busque por:\n- Contradições entre Depoimentos vs. PDFs (se ambos disponíveis).\n- Contradições entre diferentes Depoimentos (se múltiplas mídias disponíveis).\n- Fatos relevantes e tendências baseados no que estiver presente.\n\nRetorne os resultados em JSON conforme solicitado.`
-      });
+      // 2. Criar Context Cache para o Chat (4 Horas)
+      console.log("Criando Context Cache no Gemini...");
+      const modelName = "models/gemini-2.5-flash";
+      const cache = await createGeminiCache(cacheParts, modelName, SYSTEM_INSTRUCTION);
+      console.log(`Cache criado: ${cache.name}`);
 
-      console.log("Enviando para Gemini (geração pode levar tempo)...");
-      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${geminiApiKey}`;
+      // 3. Gerar Análise Principal usando o Cache
+      console.log("Gerando análise principal usando o cache...");
+      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/${modelName}:generateContent?key=${geminiApiKey}`;
       
       const generationBody = {
-        contents: [{ role: "user", parts: contentsParts }],
-        systemInstruction: { parts: [{ text: SYSTEM_INSTRUCTION }] },
+        cachedContent: cache.name,
+        contents: [{ 
+          role: "user", 
+          parts: [{ text: `TAREFA: Realize a análise jurídica exaustiva dos arquivos. \n\n${ANALYSIS_PROMPT}` }] 
+        }],
         generationConfig: {
           responseMimeType: "application/json",
           responseSchema: {
@@ -244,24 +274,28 @@ serve(async (req) => {
 
         const errText = await genResponse.text();
         console.warn(`[GEMINI] Tentativa ${attempt + 1} de geração falhou: ${genResponse.status} - ${errText}`);
-        
         if (attempt === 2) throw new Error(`Gemini Generation Error: ${genResponse.status} - ${errText}`);
-        
-        const delay = Math.pow(2, attempt) * 2000;
-        console.log(`[GEMINI] Tentando nova geração em ${delay}ms...`);
-        await new Promise(r => setTimeout(r, delay));
+        await new Promise(r => setTimeout(r, Math.pow(2, attempt) * 2000));
       }
-      const resultText = genResult.candidates?.[0]?.content?.parts?.[0]?.text;
-      const resultJson = JSON.parse(resultText || "{}");
 
-      console.log("Sucesso! Salvando resultado no banco...");
+      const resultText = genResult.candidates?.[0]?.content?.parts?.[0]?.text;
+      
+      // Sanitizar JSON (remover possíveis blocos de markdown ```json ... ```)
+      const cleanJson = resultText?.replace(/```json\n?|```/g, '').trim();
+      const resultJson = JSON.parse(cleanJson || "{}");
+
+      // 4. Salvar resultado e info do cache no banco
+      const expiry = new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString();
+      console.log("Sucesso! Salvando resultado e cache no banco...");
       await supabase.from('analises').update({
         resultado_json: resultJson,
-        status: 'concluido'
+        status: 'concluido',
+        gemini_cache_name: cache.name,
+        gemini_cache_expiry: expiry
       }).eq('id', currentAnaliseId);
 
     } finally {
-      console.log("Limpando arquivos temporários no Gemini...");
+      console.log("Limpando arquivos temporários (o cache persistirá por 4h)...");
       for (const file of googleFiles) {
         await deleteGeminiFile(file.name).catch(() => {});
       }

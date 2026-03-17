@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { UploadAnalysis } from './UploadAnalysis';
 import { AnalysisReport } from './AnalysisReport';
 import { ProfileSettings } from './ProfileSettings';
+import { AnalysisChat } from './AnalysisChat';
 
 export const Dashboard: React.FC = () => {
   const { user, signOut } = useAuth();
@@ -52,11 +53,13 @@ export const Dashboard: React.FC = () => {
     fetchProcessos();
   }, [user]);
   const [analysisStatus, setAnalysisStatus] = useState<string | null>(null);
+  const [analysisId, setAnalysisId] = useState<string | null>(null);
+  const [cacheExpiry, setCacheExpiry] = useState<string | null>(null);
 
   const fetchAnalysis = async (processoId: string) => {
     const { data, error } = await supabase
       .from('analises')
-      .select('*')
+      .select('*, gemini_cache_expiry')
       .eq('processo_id', processoId)
       .order('created_at', { ascending: false })
       .limit(1)
@@ -64,6 +67,8 @@ export const Dashboard: React.FC = () => {
 
     if (!error && data) {
       setAnalysisStatus(data.status);
+      setAnalysisId(data.id);
+      setCacheExpiry(data.gemini_cache_expiry);
       if (data.status === 'concluido') {
         setAnalysisResult(data.resultado_json);
         setAnalysisUrls({
@@ -81,6 +86,8 @@ export const Dashboard: React.FC = () => {
       }
     } else {
       setAnalysisStatus(null);
+      setAnalysisId(null);
+      setCacheExpiry(null);
       setAnalysisResult(null);
       setAnalysisUrls({});
     }
@@ -91,6 +98,8 @@ export const Dashboard: React.FC = () => {
   useEffect(() => {
     if (activeProcesso?.id) {
       setAnalysisStatus('loading');
+      setAnalysisId(null);
+      setCacheExpiry(null);
       setAnalysisResult(null);
       setAnalysisUrls({});
     }
@@ -113,30 +122,32 @@ export const Dashboard: React.FC = () => {
       pollInterval = setInterval(async () => {
         const { data, error } = await supabase
           .from('analises')
-          .select('status, resultado_json, video_url, pdf_url, video_urls, pdf_urls')
+          .select('id, status, resultado_json, video_url, pdf_url, video_urls, pdf_urls, gemini_cache_expiry')
           .eq('processo_id', activeProcesso.id)
           .order('created_at', { ascending: false })
           .limit(1)
           .maybeSingle();
 
-        if (!error && data) {
-          if (data.status !== analysisStatus) {
-            setAnalysisStatus(data.status);
+          if (!error && data) {
+            setAnalysisId(data.id);
+            setCacheExpiry(data.gemini_cache_expiry);
+            if (data.status !== analysisStatus) {
+              setAnalysisStatus(data.status);
+            }
+            if (data.status === 'concluido' && data.resultado_json) {
+              setAnalysisResult(data.resultado_json);
+              setAnalysisUrls({
+                video: data.video_url,
+                pdf: data.pdf_url,
+                videos: data.video_urls,
+                pdfs: data.pdf_urls
+              });
+              clearInterval(pollInterval);
+            } else if (data.status === 'erro') {
+              setAnalysisResult(data.resultado_json);
+              clearInterval(pollInterval);
+            }
           }
-          if (data.status === 'concluido' && data.resultado_json) {
-            setAnalysisResult(data.resultado_json);
-            setAnalysisUrls({
-              video: data.video_url,
-              pdf: data.pdf_url,
-              videos: data.video_urls,
-              pdfs: data.pdf_urls
-            });
-            clearInterval(pollInterval);
-          } else if (data.status === 'erro') {
-            setAnalysisResult(data.resultado_json);
-            clearInterval(pollInterval);
-          }
-        }
       }, 5000); // 5 seconds interval
     };
 
@@ -478,6 +489,9 @@ export const Dashboard: React.FC = () => {
                   pdfUrls={analysisUrls.pdfs}
                   processNumber={formatProcessNumber(activeProcesso.numero_processo || '')}
                   clientName={activeProcesso.cliente}
+                  analiseId={analysisId || ''}
+                  processoId={activeProcesso.id}
+                  cacheExpiry={cacheExpiry || undefined}
                 />
               ) : (
                 <UploadAnalysis

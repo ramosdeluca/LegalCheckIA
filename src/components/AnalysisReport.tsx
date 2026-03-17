@@ -3,6 +3,7 @@ import { AlertTriangle, Clock, FileText, ArrowLeft, ShieldAlert, ShieldCheck, In
 import { motion, AnimatePresence } from 'motion/react';
 import jsPDF from 'jspdf';
 import { domToPng } from 'modern-screenshot';
+import { AnalysisChat } from './AnalysisChat';
 
 interface Contradicao {
   timestamp: string;
@@ -14,7 +15,7 @@ interface Contradicao {
 }
 
 interface AnalysisReportProps {
-  result: any; // Aceita tanto Contradicao[] (antigo) quanto objeto com insights (novo)
+  result: any;
   onReset: () => void;
   videoUrl?: string;
   pdfUrl?: string;
@@ -22,6 +23,9 @@ interface AnalysisReportProps {
   pdfUrls?: string[];
   processNumber?: string;
   clientName?: string;
+  analiseId: string;
+  processoId: string;
+  cacheExpiry?: string;
 }
 
 export const AnalysisReport: React.FC<AnalysisReportProps> = ({
@@ -32,19 +36,20 @@ export const AnalysisReport: React.FC<AnalysisReportProps> = ({
   videoUrls,
   pdfUrls,
   processNumber,
-  clientName
+  clientName,
+  analiseId,
+  processoId,
+  cacheExpiry
 }) => {
   const reportRef = useRef<HTMLDivElement>(null);
   const [isExporting, setIsExporting] = useState(false);
   const [isSharing, setIsSharing] = useState(false);
   const [showInsightsModal, setShowInsightsModal] = useState(false);
 
-  // Backward compatibility: check if it's the new format
   const isNewFormat = !Array.isArray(result) && result?.contradicoes;
   const contradicoesLista: Contradicao[] = isNewFormat ? result.contradicoes : (Array.isArray(result) ? result : []);
   const hasInsights = isNewFormat && (result.resumo_executivo || result.analise_tendencia);
 
-  // Use hex colors to avoid oklab/oklch issues in some PDF generators
   const getGravidadeColor = (gravidade: string) => {
     switch (gravidade) {
       case 'Alta': return 'text-[#dc2626] bg-[#fef2f2] border-[#fee2e2]';
@@ -65,45 +70,28 @@ export const AnalysisReport: React.FC<AnalysisReportProps> = ({
 
   const generatePDFBlob = async (): Promise<Blob | null> => {
     if (!reportRef.current) return null;
-
     try {
       const pdf = new jsPDF('p', 'mm', 'a4');
       const pageWidth = pdf.internal.pageSize.getWidth();
       const pageHeight = pdf.internal.pageSize.getHeight();
       const margin = 10;
       const contentWidth = pageWidth - (2 * margin);
-
       let currentY = margin;
-
-      // Pegar todos os elementos que queremos no PDF
       const elements = reportRef.current.querySelectorAll('.pdf-section');
-
       for (let i = 0; i < elements.length; i++) {
         const el = elements[i] as HTMLElement;
-
-        // Capturar o elemento individualmente
-        const canvas = await domToPng(el, {
-          scale: 2,
-          backgroundColor: '#f5f2ed',
-          quality: 1,
-        });
-
+        const canvas = await domToPng(el, { scale: 2, backgroundColor: '#f5f2ed', quality: 1 });
         const img = new Image();
         img.src = canvas;
         await new Promise((resolve) => (img.onload = resolve));
-
         const imgHeight = (img.height * contentWidth) / img.width;
-
-        // Se o elemento não couber na página atual, cria uma nova
         if (currentY + imgHeight > pageHeight - margin) {
           pdf.addPage();
           currentY = margin;
         }
-
         pdf.addImage(canvas, 'PNG', margin, currentY, contentWidth, imgHeight);
-        currentY += imgHeight + 5; // 5mm de espaço entre cartões
+        currentY += imgHeight + 5;
       }
-
       return pdf.output('blob');
     } catch (error) {
       console.error('Erro ao gerar PDF:', error);
@@ -129,80 +117,49 @@ export const AnalysisReport: React.FC<AnalysisReportProps> = ({
 
   const handleShare = async () => {
     setIsSharing(true);
-
     const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
     const shareText = `Relatório de Contradições Jurídicas\nProcesso: ${processNumber}\nCliente: ${clientName}\n\nConfira os detalhes no LegalCheck.`;
-
-    // Generate the PDF first so it's ready for either flow
     const blob = await generatePDFBlob();
     if (!blob) {
       alert('Erro ao gerar o PDF para compartilhamento.');
       setIsSharing(false);
       return;
     }
-
-    // On Mobile, we prefer native sharing because it allows sending the actual PDF file directly
     if (isMobile && navigator.share) {
       try {
         const file = new File([blob], `Relatorio_Contradicoes_${processNumber || 'Analise'}.pdf`, { type: 'application/pdf' });
-
         if (navigator.canShare && navigator.canShare({ files: [file] })) {
-          await navigator.share({
-            title: 'Relatório de Contradições',
-            text: shareText,
-            files: [file],
-          });
+          await navigator.share({ title: 'Relatório de Contradições', text: shareText, files: [file] });
           setIsSharing(false);
           return;
         }
-
-        // Fallback to text-only native share on mobile
-        await navigator.share({
-          title: 'Relatório de Contradições',
-          text: shareText,
-        });
+        await navigator.share({ title: 'Relatório de Contradições', text: shareText });
         setIsSharing(false);
         return;
       } catch (error) {
-        if ((error as Error).name !== 'AbortError') {
-          console.error('Erro no compartilhamento nativo:', error);
-        } else {
-          setIsSharing(false);
-          return;
-        }
+        if ((error as Error).name !== 'AbortError') console.error('Erro no compartilhamento nativo:', error);
+        setIsSharing(false);
+        return;
       }
     }
-
-    // On Desktop:
-    // 1. Automatically download the PDF so it's ready to be attached
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
     link.download = `Relatorio_Contradicoes_${processNumber || 'Analise'}.pdf`;
     link.click();
     URL.revokeObjectURL(url);
-
-    // 2. Open WhatsApp Web
     handleWhatsAppShare();
-
-    // 3. Inform the user
     alert('O PDF foi baixado automaticamente. Agora, basta anexá-lo na conversa do WhatsApp que abriu!');
-
     setIsSharing(false);
   };
 
   const handleWhatsAppShare = () => {
     const text = `Relatório de Contradições Jurídicas\nProcesso: ${processNumber}\nCliente: ${clientName}\n\nConfira os detalhes no LegalCheck.`;
-
     const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-
-    // Force web.whatsapp.com for desktop to avoid the "app picker" screen
     const whatsappUrl = isMobile
       ? `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`
       : `https://web.whatsapp.com/send?text=${encodeURIComponent(text)}`;
-
     const newWindow = window.open(whatsappUrl, '_blank');
-
     if (!newWindow || newWindow.closed || typeof newWindow.closed === 'undefined') {
       alert('O compartilhamento foi bloqueado pelo navegador. Por favor, permita pop-ups para este site.');
     }
@@ -211,10 +168,8 @@ export const AnalysisReport: React.FC<AnalysisReportProps> = ({
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 bg-white/60 backdrop-blur-md p-3 md:p-4 rounded-[28px] md:rounded-[40px] border border-white shadow-sm overflow-visible">
-        {/* Linha 1: Documentos (Áudios e PDFs) */}
         {((videoUrls && videoUrls.length > 0) || (pdfUrls && pdfUrls.length > 0) || videoUrl || pdfUrl) && (
           <div className="flex items-center justify-center gap-4 px-4 py-2.5 bg-white/80 rounded-[18px] border border-black/5 shadow-sm overflow-x-auto no-scrollbar whitespace-nowrap w-full">
-            {/* Vídeos/Audios */}
             {videoUrls && videoUrls.length > 0 ? (
               videoUrls.map((url, i) => (
                 <a key={`v-${i}`} href={url} target="_blank" rel="noopener noreferrer" className="text-[11px] font-bold uppercase tracking-widest text-[#5A5A40] hover:text-blue-600 flex items-center gap-2 transition-all hover:scale-105">
@@ -226,11 +181,7 @@ export const AnalysisReport: React.FC<AnalysisReportProps> = ({
                 <Volume2 size={16} className="text-blue-500" /> Áudio Original
               </a>
             )}
-
-            {/* Separador se houver ambos */}
             {((videoUrls?.length || videoUrl) && (pdfUrls?.length || pdfUrl)) && <div className="w-px h-5 bg-gray-200" />}
-
-            {/* PDFs */}
             {pdfUrls && pdfUrls.length > 0 ? (
               pdfUrls.map((url, i) => (
                 <a key={`p-${i}`} href={url} target="_blank" rel="noopener noreferrer" className="text-[11px] font-bold uppercase tracking-widest text-[#5A5A40] hover:text-red-600 flex items-center gap-2 transition-all hover:scale-105 shrink-0">
@@ -245,7 +196,6 @@ export const AnalysisReport: React.FC<AnalysisReportProps> = ({
           </div>
         )}
 
-        {/* Linha 2: Ações */}
         <div className="flex flex-wrap items-center justify-center gap-3">
           {hasInsights && (
             <button
@@ -256,7 +206,6 @@ export const AnalysisReport: React.FC<AnalysisReportProps> = ({
               Insights IA
             </button>
           )}
-
           <button
             onClick={handleExportPDF}
             disabled={isExporting || isSharing}
@@ -265,7 +214,6 @@ export const AnalysisReport: React.FC<AnalysisReportProps> = ({
             <Download size={14} />
             {isExporting ? 'Exportando' : 'Exportar PDF'}
           </button>
-
           <button
             onClick={handleShare}
             disabled={isExporting || isSharing}
@@ -274,9 +222,7 @@ export const AnalysisReport: React.FC<AnalysisReportProps> = ({
             <Share2 size={14} />
             {isSharing ? 'Preparando' : 'Compartilhar'}
           </button>
-
           <div className="w-px h-5 bg-gray-200 hidden sm:block" />
-
           <button
             onClick={onReset}
             className="flex items-center justify-center gap-2 px-4 py-2.5 text-[10px] font-bold uppercase tracking-widest text-gray-500 hover:text-[#5A5A40] transition-all hover:bg-white/80 rounded-full transform active:scale-95 shrink-0"
@@ -288,10 +234,8 @@ export const AnalysisReport: React.FC<AnalysisReportProps> = ({
       </div>
 
       <div ref={reportRef} className="space-y-6 p-1">
-        {/* PDF Header - Only visible in export/report view */}
         <div className="pdf-section relative bg-white/80 backdrop-blur-sm rounded-[32px] p-8 md:p-10 border border-white shadow-sm mb-6 overflow-hidden">
           <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-[#5A5A40]/[0.02] rounded-full -translate-y-1/2 translate-x-1/3 pointer-events-none" />
-
           <div className="relative z-10">
             <div className="flex items-center gap-3 mb-6 md:mb-8">
               <div className="w-10 h-10 md:w-14 md:h-14 bg-gradient-to-br from-[#5A5A40] to-[#3A3A20] rounded-xl md:rounded-[20px] flex items-center justify-center text-white shadow-lg shadow-[#5A5A40]/20 shrink-0">
@@ -302,7 +246,6 @@ export const AnalysisReport: React.FC<AnalysisReportProps> = ({
                 <p className="text-[9px] md:text-xs text-[#5A5A40] uppercase tracking-[0.2em] font-bold">LegalCheck IA • Análise Jurídica</p>
               </div>
             </div>
-
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8 pt-6 border-t border-gray-100">
               <div>
                 <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Número do Processo</p>
@@ -352,7 +295,6 @@ export const AnalysisReport: React.FC<AnalysisReportProps> = ({
                     Gravidade {item.gravidade}
                   </div>
                 </div>
-
                 <div className="p-8 grid grid-cols-1 md:grid-cols-2 gap-8">
                   <div className="space-y-3">
                     <div className="flex items-center gap-2 text-xs font-bold text-gray-400 uppercase tracking-widest">
@@ -361,7 +303,6 @@ export const AnalysisReport: React.FC<AnalysisReportProps> = ({
                     </div>
                     <p className="text-[#1a1a1a] leading-relaxed italic">"{item.o_que_foi_dito}"</p>
                   </div>
-
                   <div className="space-y-3">
                     <div className="flex items-center gap-2 text-xs font-bold text-gray-400 uppercase tracking-widest">
                       <FileText size={14} className="text-blue-400" />
@@ -369,7 +310,6 @@ export const AnalysisReport: React.FC<AnalysisReportProps> = ({
                     </div>
                     <p className="text-[#1a1a1a] leading-relaxed italic">"{item.o_que_diz_o_processo}"</p>
                   </div>
-
                   <div className="md:col-span-2 pt-4 border-t border-gray-50">
                     <div className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Análise Jurídica</div>
                     <p className="text-gray-600 leading-relaxed text-sm">{item.explicacao}</p>
@@ -381,49 +321,32 @@ export const AnalysisReport: React.FC<AnalysisReportProps> = ({
         )}
       </div>
 
-      {/* Insights Modal */}
+      <div className="mt-8">
+        <AnalysisChat 
+          analiseId={analiseId} 
+          processoId={processoId} 
+          cacheExpiry={cacheExpiry} 
+        />
+      </div>
+
       <AnimatePresence>
         {showInsightsModal && hasInsights && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 pb-20 sm:pb-6">
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="absolute inset-0 bg-black/40 backdrop-blur-sm"
-              onClick={() => setShowInsightsModal(false)}
-            />
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="relative w-full max-w-2xl bg-[#f8f9fa] rounded-[32px] sm:rounded-[40px] shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
-            >
-              {/* Header */}
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowInsightsModal(false)} />
+            <motion.div initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 20 }} className="relative w-full max-w-2xl bg-[#f8f9fa] rounded-[32px] sm:rounded-[40px] shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
               <div className="relative bg-gradient-to-r from-blue-600 to-indigo-700 p-8 sm:p-10 shrink-0">
                 <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full -translate-y-1/2 translate-x-1/3 blur-2xl pointer-events-none" />
-
-                <button
-                  onClick={() => setShowInsightsModal(false)}
-                  className="absolute top-6 right-6 p-2 text-white/70 hover:text-white hover:bg-white/10 rounded-full transition-colors"
-                >
-                  <X size={24} />
-                </button>
-
+                <button onClick={() => setShowInsightsModal(false)} className="absolute top-6 right-6 p-2 text-white/70 hover:text-white hover:bg-white/10 rounded-full transition-colors"><X size={24} /></button>
                 <div className="flex items-center gap-4 mb-4 relative z-10">
-                  <div className="w-12 h-12 bg-white/20 backdrop-blur-md rounded-[16px] flex items-center justify-center text-white shrink-0 shadow-inner">
-                    <Sparkles size={24} />
-                  </div>
+                  <div className="w-12 h-12 bg-white/20 backdrop-blur-md rounded-[16px] flex items-center justify-center text-white shrink-0 shadow-inner"><Sparkles size={24} /></div>
                   <div>
                     <h2 className="text-2xl sm:text-3xl font-serif text-white leading-tight tracking-tight">Insights da IA</h2>
                     <p className="text-xs text-blue-200 uppercase tracking-[0.1em] font-medium mt-1">Análise Panorâmica do Processo</p>
                   </div>
                 </div>
               </div>
-
-              {/* Body */}
               <div className="p-8 sm:p-10 overflow-y-auto custom-scrollbar flex-1 bg-white relative">
                 <div className="space-y-8">
-                  {/* Process Info */}
                   <div className="flex flex-col sm:flex-row gap-6 p-5 bg-blue-50/50 rounded-[24px] border border-blue-100/50">
                     <div className="flex-1">
                       <p className="text-[10px] font-bold text-blue-400 uppercase tracking-widest mb-1">Processo</p>
@@ -435,48 +358,27 @@ export const AnalysisReport: React.FC<AnalysisReportProps> = ({
                       <p className="text-sm font-semibold text-[#1a1a1a] break-words">{clientName || 'Não informado'}</p>
                     </div>
                   </div>
-
-                  {/* Exec Summary */}
                   {result.resumo_executivo && (
                     <div className="space-y-3">
-                      <h3 className="text-xs font-extrabold text-[#1a1a1a] uppercase tracking-widest flex items-center gap-2">
-                        <FileText size={16} className="text-blue-500" />
-                        Resumo Executivo
-                      </h3>
-                      <div className="p-6 bg-white rounded-[24px] border border-gray-100 shadow-sm leading-relaxed text-gray-700 text-sm sm:text-base">
-                        {result.resumo_executivo}
-                      </div>
+                      <h3 className="text-xs font-extrabold text-[#1a1a1a] uppercase tracking-widest flex items-center gap-2"><FileText size={16} className="text-blue-500" />Resumo Executivo</h3>
+                      <div className="p-6 bg-white rounded-[24px] border border-gray-100 shadow-sm leading-relaxed text-gray-700 text-sm sm:text-base">{result.resumo_executivo}</div>
                     </div>
                   )}
-
-                  {/* Trend Analysis */}
                   {result.analise_tendencia && (
                     <div className="space-y-3">
-                      <h3 className="text-xs font-extrabold text-[#1a1a1a] uppercase tracking-widest flex items-center gap-2">
-                        <AlertTriangle size={16} className="text-indigo-500" />
-                        Análise de Tendência
-                      </h3>
-                      <div className="p-6 bg-indigo-50/30 rounded-[24px] border border-indigo-100 leading-relaxed text-indigo-950 font-medium text-sm sm:text-base shadow-sm">
-                        {result.analise_tendencia}
-                      </div>
+                      <h3 className="text-xs font-extrabold text-[#1a1a1a] uppercase tracking-widest flex items-center gap-2"><AlertTriangle size={16} className="text-indigo-500" />Análise de Tendência</h3>
+                      <div className="p-6 bg-indigo-50/30 rounded-[24px] border border-indigo-100 leading-relaxed text-indigo-950 font-medium text-sm sm:text-base shadow-sm">{result.analise_tendencia}</div>
                     </div>
                   )}
                 </div>
               </div>
-
-              {/* Footer */}
               <div className="p-6 bg-gray-50 border-t border-gray-100 shrink-0 flex justify-end">
-                <button
-                  onClick={() => setShowInsightsModal(false)}
-                  className="px-8 py-3 bg-gray-200 text-gray-700 font-semibold rounded-full hover:bg-gray-300 transition-colors"
-                >
-                  Fechar
-                </button>
+                <button onClick={() => setShowInsightsModal(false)} className="px-8 py-3 bg-gray-200 text-gray-700 font-semibold rounded-full hover:bg-gray-300 transition-colors">Fechar</button>
               </div>
             </motion.div>
           </div>
         )}
       </AnimatePresence>
-    </div >
+    </div>
   );
 };
