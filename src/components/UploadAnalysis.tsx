@@ -162,7 +162,7 @@ export const UploadAnalysis: React.FC<UploadAnalysisProps> = ({ processoId, onAn
 
       if (dbError) throw dbError;
 
-      supabase.functions.invoke('analisar-audiencia', {
+      supabase.functions.invoke('fnc_upload_gemini', {
         body: { processoId: processoId }
       }).catch(console.error);
 
