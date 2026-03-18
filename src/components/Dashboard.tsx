@@ -55,6 +55,7 @@ export const Dashboard: React.FC = () => {
   const [analysisStatus, setAnalysisStatus] = useState<string | null>(null);
   const [analysisId, setAnalysisId] = useState<string | null>(null);
   const [cacheExpiry, setCacheExpiry] = useState<string | null>(null);
+  const [analysisCreatedAt, setAnalysisCreatedAt] = useState<string | null>(null);
 
   const fetchAnalysis = async (processoId: string) => {
     const { data, error } = await supabase
@@ -69,6 +70,7 @@ export const Dashboard: React.FC = () => {
       setAnalysisStatus(data.status);
       setAnalysisId(data.id);
       setCacheExpiry(data.gemini_cache_expiry);
+      setAnalysisCreatedAt(data.created_at);
       if (data.status === 'concluido') {
         setAnalysisResult(data.resultado_json);
         setAnalysisUrls({
@@ -88,6 +90,7 @@ export const Dashboard: React.FC = () => {
       setAnalysisStatus(null);
       setAnalysisId(null);
       setCacheExpiry(null);
+      setAnalysisCreatedAt(null);
       setAnalysisResult(null);
       setAnalysisUrls({});
     }
@@ -100,6 +103,7 @@ export const Dashboard: React.FC = () => {
       setAnalysisStatus('loading');
       setAnalysisId(null);
       setCacheExpiry(null);
+      setAnalysisCreatedAt(null);
       setAnalysisResult(null);
       setAnalysisUrls({});
     }
@@ -122,7 +126,7 @@ export const Dashboard: React.FC = () => {
       pollInterval = setInterval(async () => {
         const { data, error } = await supabase
           .from('analises')
-          .select('id, status, resultado_json, video_url, pdf_url, video_urls, pdf_urls, gemini_cache_expiry')
+          .select('id, status, resultado_json, video_url, pdf_url, video_urls, pdf_urls, gemini_cache_expiry, created_at')
           .eq('processo_id', activeProcesso.id)
           .order('created_at', { ascending: false })
           .limit(1)
@@ -131,6 +135,7 @@ export const Dashboard: React.FC = () => {
           if (!error && data) {
             setAnalysisId(data.id);
             setCacheExpiry(data.gemini_cache_expiry);
+            setAnalysisCreatedAt(data.created_at);
             if (data.status !== analysisStatus) {
               setAnalysisStatus(data.status);
             }
@@ -492,6 +497,7 @@ export const Dashboard: React.FC = () => {
                   analiseId={analysisId || ''}
                   processoId={activeProcesso.id}
                   cacheExpiry={cacheExpiry || undefined}
+                  createdAt={analysisCreatedAt || undefined}
                 />
               ) : (
                 <UploadAnalysis

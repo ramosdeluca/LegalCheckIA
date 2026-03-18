@@ -26,6 +26,7 @@ interface AnalysisReportProps {
   analiseId: string;
   processoId: string;
   cacheExpiry?: string;
+  createdAt?: string;
 }
 
 export const AnalysisReport: React.FC<AnalysisReportProps> = ({
@@ -39,7 +40,8 @@ export const AnalysisReport: React.FC<AnalysisReportProps> = ({
   clientName,
   analiseId,
   processoId,
-  cacheExpiry
+  cacheExpiry,
+  createdAt
 }) => {
   const reportRef = useRef<HTMLDivElement>(null);
   const [isExporting, setIsExporting] = useState(false);
@@ -51,6 +53,15 @@ export const AnalysisReport: React.FC<AnalysisReportProps> = ({
   React.useEffect(() => {
     setActiveView('report');
   }, [analiseId]);
+
+  const isMediaExpired = React.useMemo(() => {
+    if (!createdAt) return false;
+    const createdDate = new Date(createdAt);
+    const now = new Date();
+    const diffTime = Math.abs(now.getTime() - createdDate.getTime());
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    return diffDays > 7;
+  }, [createdAt]);
 
   const isNewFormat = !Array.isArray(result) && result?.contradicoes;
   const contradicoesLista: Contradicao[] = isNewFormat ? result.contradicoes : (Array.isArray(result) ? result : []);
@@ -175,29 +186,44 @@ export const AnalysisReport: React.FC<AnalysisReportProps> = ({
     <div className="space-y-6">
       <div className="flex flex-col gap-4 bg-white/60 backdrop-blur-md p-3 md:p-4 rounded-[28px] md:rounded-[40px] border border-white shadow-sm overflow-visible">
         {((videoUrls && videoUrls.length > 0) || (pdfUrls && pdfUrls.length > 0) || videoUrl || pdfUrl) && (
-          <div className="flex items-center justify-center gap-4 px-4 py-2.5 bg-white/80 rounded-[18px] border border-black/5 shadow-sm overflow-x-auto no-scrollbar whitespace-nowrap w-full">
-            {videoUrls && videoUrls.length > 0 ? (
-              videoUrls.map((url, i) => (
-                <a key={`v-${i}`} href={url} target="_blank" rel="noopener noreferrer" className="text-[11px] font-bold uppercase tracking-widest text-[#5A5A40] hover:text-blue-600 flex items-center gap-2 transition-all hover:scale-105">
-                  <Volume2 size={16} className="text-blue-500" /> Áudio {videoUrls.length > 1 ? i + 1 : ''}
-                </a>
-              ))
-            ) : videoUrl && (
-              <a href={videoUrl} target="_blank" rel="noopener noreferrer" className="text-[11px] font-bold uppercase tracking-widest text-[#5A5A40] hover:text-blue-600 flex items-center gap-2 transition-all hover:scale-105">
-                <Volume2 size={16} className="text-blue-500" /> Áudio Original
-              </a>
-            )}
-            {((videoUrls?.length || videoUrl) && (pdfUrls?.length || pdfUrl)) && <div className="w-px h-5 bg-gray-200" />}
-            {pdfUrls && pdfUrls.length > 0 ? (
-              pdfUrls.map((url, i) => (
-                <a key={`p-${i}`} href={url} target="_blank" rel="noopener noreferrer" className="text-[11px] font-bold uppercase tracking-widest text-[#5A5A40] hover:text-red-600 flex items-center gap-2 transition-all hover:scale-105 shrink-0">
-                  <FileText size={16} className="text-red-500" /> PDF {pdfUrls.length > 1 ? i + 1 : ''}
-                </a>
-              ))
-            ) : pdfUrl && (
-              <a href={pdfUrl} target="_blank" rel="noopener noreferrer" className="text-[11px] font-bold uppercase tracking-widest text-[#5A5A40] hover:text-red-600 flex items-center gap-2 transition-all hover:scale-105 shrink-0">
-                <FileText size={16} className="text-red-500" /> PDF Original
-              </a>
+          <div className="w-full">
+            {isMediaExpired ? (
+              <div className="flex items-center justify-center gap-2 px-4 py-3 bg-red-50 text-red-600 rounded-[18px] border border-red-100 shadow-sm text-[11px] font-medium text-center">
+                <ShieldAlert size={16} className="shrink-0" />
+                As mídias já foram removidas dessa análise (prazo de 7 dias).
+              </div>
+            ) : (
+              <div className="flex flex-col bg-white/80 rounded-[18px] border border-black/5 shadow-sm overflow-hidden">
+                <div className="flex items-center justify-center gap-2 px-4 py-2 bg-amber-50 text-amber-700 border-b border-amber-100/50 text-[10px] font-bold uppercase tracking-widest text-center">
+                  <Clock size={14} className="shrink-0" />
+                  As mídias ficam disponíveis por 7 dias neste aplicativo.
+                </div>
+                <div className="flex items-center justify-center gap-4 px-4 py-3 overflow-x-auto no-scrollbar whitespace-nowrap w-full">
+                  {videoUrls && videoUrls.length > 0 ? (
+                    videoUrls.map((url, i) => (
+                      <a key={`v-${i}`} href={url} target="_blank" rel="noopener noreferrer" className="text-[11px] font-bold uppercase tracking-widest text-[#5A5A40] hover:text-blue-600 flex items-center gap-2 transition-all hover:scale-105">
+                        <Volume2 size={16} className="text-blue-500" /> Áudio {videoUrls.length > 1 ? i + 1 : ''}
+                      </a>
+                    ))
+                  ) : videoUrl && (
+                    <a href={videoUrl} target="_blank" rel="noopener noreferrer" className="text-[11px] font-bold uppercase tracking-widest text-[#5A5A40] hover:text-blue-600 flex items-center gap-2 transition-all hover:scale-105">
+                      <Volume2 size={16} className="text-blue-500" /> Áudio Original
+                    </a>
+                  )}
+                  {((videoUrls?.length || videoUrl) && (pdfUrls?.length || pdfUrl)) && <div className="w-px h-5 bg-gray-200" />}
+                  {pdfUrls && pdfUrls.length > 0 ? (
+                    pdfUrls.map((url, i) => (
+                      <a key={`p-${i}`} href={url} target="_blank" rel="noopener noreferrer" className="text-[11px] font-bold uppercase tracking-widest text-[#5A5A40] hover:text-red-600 flex items-center gap-2 transition-all hover:scale-105 shrink-0">
+                        <FileText size={16} className="text-red-500" /> PDF {pdfUrls.length > 1 ? i + 1 : ''}
+                      </a>
+                    ))
+                  ) : pdfUrl && (
+                    <a href={pdfUrl} target="_blank" rel="noopener noreferrer" className="text-[11px] font-bold uppercase tracking-widest text-[#5A5A40] hover:text-red-600 flex items-center gap-2 transition-all hover:scale-105 shrink-0">
+                      <FileText size={16} className="text-red-500" /> PDF Original
+                    </a>
+                  )}
+                </div>
+              </div>
             )}
           </div>
         )}
