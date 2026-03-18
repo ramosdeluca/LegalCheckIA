@@ -200,7 +200,21 @@ export const UploadAnalysis: React.FC<UploadAnalysisProps> = ({ processoId, onAn
               className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20"
               onChange={(e) => {
                 const files = Array.from(e.target.files || []);
-                setVideoFiles(prev => [...prev, ...files]);
+                const validFiles = [];
+                let hasError = false;
+                for (const f of files) {
+                  if (f.size > 300 * 1024 * 1024) { // 300MB
+                    hasError = true;
+                  } else {
+                    validFiles.push(f);
+                  }
+                }
+                if (hasError) {
+                  setError('Um ou mais vídeos/áudios excedem o limite de 300MB. Por favor, divida ou comprima o arquivo.');
+                } else {
+                  setError(null);
+                }
+                setVideoFiles(prev => [...prev, ...validFiles]);
               }}
             />
             <div className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-all ${videoFiles.length > 0 ? 'bg-[#5A5A40] text-white' : 'bg-white text-gray-400 group-hover:text-[#5A5A40]'}`}>
@@ -208,7 +222,7 @@ export const UploadAnalysis: React.FC<UploadAnalysisProps> = ({ processoId, onAn
             </div>
             <div className="text-center">
               <p className="font-semibold text-[#1a1a1a]">Mídias da Audiência</p>
-              <p className="text-xs text-gray-500">Vídeos ou Áudios (Vários permitidos)</p>
+              <p className="text-xs text-gray-500">Vídeos ou Áudios (Vários permitidos, máx. 300MB/arquivo)</p>
             </div>
           </div>
 
@@ -243,7 +257,21 @@ export const UploadAnalysis: React.FC<UploadAnalysisProps> = ({ processoId, onAn
               className="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-20"
               onChange={(e) => {
                 const files = Array.from(e.target.files || []);
-                setPdfFiles(prev => [...prev, ...files]);
+                const validFiles = [];
+                let hasError = false;
+                for (const f of files) {
+                  if (f.size > 80 * 1024 * 1024) { // 80MB
+                    hasError = true;
+                  } else {
+                    validFiles.push(f);
+                  }
+                }
+                if (hasError) {
+                  setError('Um ou mais PDFs excedem o limite de 80MB. Por favor, divida o arquivo.');
+                } else {
+                  setError(null);
+                }
+                setPdfFiles(prev => [...prev, ...validFiles]);
               }}
             />
             <div className={`w-14 h-14 rounded-2xl flex items-center justify-center transition-all ${pdfFiles.length > 0 ? 'bg-[#5A5A40] text-white' : 'bg-white text-gray-400 group-hover:text-[#5A5A40]'}`}>
@@ -251,7 +279,7 @@ export const UploadAnalysis: React.FC<UploadAnalysisProps> = ({ processoId, onAn
             </div>
             <div className="text-center">
               <p className="font-semibold text-[#1a1a1a]">PDFs do Processo</p>
-              <p className="text-xs text-gray-500">Documentos e Petições</p>
+              <p className="text-xs text-gray-500">Documentos e Petições (Máx. 80MB/arquivo)</p>
             </div>
           </div>
 
