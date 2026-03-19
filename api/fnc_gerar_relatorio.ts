@@ -85,12 +85,20 @@ export default async function handler(req: any, res: any) {
       generationConfig: { temperature: 0.0 }
     };
 
+    // --- Início Logica de Timeout de 290 segundos (Segurança Vercel de 300s) ---
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 290000); // 290 segundos
+
     console.log(`[Vercel API] Chamando Gemini 1.5 PRO v1beta (via ${uris.length} URIs)...`);
     const genResponse = await fetch(geminiUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(generationBody)
+      body: JSON.stringify(generationBody),
+      signal: controller.signal as any // Node fetch supports signal
     });
+
+    clearTimeout(timeoutId);
+    // --- Fim Logica de Timeout ---
 
     if (!genResponse.ok) {
       const errText = await genResponse.text();
@@ -120,12 +128,18 @@ export default async function handler(req: any, res: any) {
 
   } catch (error: any) {
     console.error(`[Vercel API] Erro:`, error.message);
+    
+    let finalMessage = error.message;
+    if (error.name === 'AbortError') {
+      finalMessage = "O Gemini demorou muito para responder (Limite de 5 min atingido). Tente novamente com menos arquivos ou mídias mais curtas.";
+    }
+
     if (recordId) {
       await supabase.from('analises').update({
         status: 'erro',
-        resultado_json: { erro: error.message }
+        resultado_json: { erro: finalMessage }
       }).eq('id', recordId);
     }
-    return res.status(500).json({ error: error.message });
+    return res.status(500).json({ error: finalMessage });
   }
 }
