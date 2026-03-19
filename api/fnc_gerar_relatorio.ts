@@ -51,8 +51,8 @@ export default async function handler(req: any, res: any) {
 
     if (!uris.length) throw new Error("URIs dos arquivos não encontradas no banco.");
 
-    // 2. Chamada Gemini (1.5 Pro é estável e aguenta muitos arquivos)
-    const modelName = "models/gemini-1.5-pro"; 
+    // 2. Chamada Gemini (CONFIRMADO: gemini-2.5-pro existe nesta chave)
+    const modelName = "models/gemini-2.5-pro"; 
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/${modelName}:generateContent?key=${geminiApiKey}`;
     
     // Preparar os componentes da mensagem
