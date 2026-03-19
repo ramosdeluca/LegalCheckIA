@@ -7,8 +7,8 @@ const geminiApiKey = Deno.env.get("GEMINI_API_KEY") ?? "";
 
 const ANALYSIS_PROMPT = `
 REQUISITO DE FORMATAÇÃO (Obrigatório retornar em JSON):
-1. "resumo_executivo": Forneça um parágrafo detalhado resumindo as principais constatações.
-2. "analise_tendencia": Realize uma análise profunda e técnica apontando a tendência geral da prova.
+1. "resumo_executivo": Forneça um parágrafo conciso resumindo as principais constatações.
+2. "analise_tendencia": Aponte a tendência geral da prova de forma direta.
 3. "contradicoes": Liste no máximo as 5 contradições mais relevantes contendo:
    - "timestamp": Formato "Áudio X - MM:SS".
    - "o_que_foi_dito": Personagem + fala precisa.
@@ -78,10 +78,12 @@ serve(async (req) => {
       cachedContent: cacheName,
       contents: [{ 
         role: "user", 
-        parts: [{ text: `TAREFA: Realize a análise jurídica exaustiva dos arquivos em cache. \n\n${ANALYSIS_PROMPT}` }] 
+        parts: [{ text: `TAREFA: Realize a análise jurídica objetiva dos arquivos em cache. \n\n${ANALYSIS_PROMPT}` }] 
       }],
       generationConfig: {
         responseMimeType: "application/json",
+        temperature: 0.1,
+        maxOutputTokens: 2048,
         responseSchema: {
           type: "object",
           properties: {
@@ -109,24 +111,54 @@ serve(async (req) => {
     };
 
     let genResult;
-    for (let attempt = 0; attempt < 3; attempt++) {
-      console.log(`[fnc_gerar_relatorio] Disparando fetch para Gemini (Tentativa ${attempt + 1}). URL: ${geminiUrl.split('key=')[0]}...`);
-      const genResponse = await fetch(geminiUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(generationBody),
-      });
-      console.log(`[fnc_gerar_relatorio] Resposta Gemini recebida! HTTP Status: ${genResponse.status}`);
+    // Reduzido para 2 tentativas para caber no limite de 300s do Pro Plan se houver timeout
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const controller = new AbortController();
+      // Tentativa 1: 150s, Tentativa 2: 100s
+      const currentTimeout = attempt === 0 ? 150000 : 100000;
+      const timeoutId = setTimeout(() => controller.abort(), currentTimeout);
 
-      if (genResponse.ok) {
-        genResult = await genResponse.json();
-        break;
+      try {
+        const startTime = Date.now();
+        console.log(`[fnc_gerar_relatorio] Disparando fetch para Gemini (Tentativa ${attempt + 1}). Timeout: ${currentTimeout/1000}s...`);
+        
+        const genResponse = await fetch(geminiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(generationBody),
+          signal: controller.signal
+        });
+
+        const duration = ((Date.now() - startTime) / 1000).toFixed(1);
+        console.log(`[fnc_gerar_relatorio] Resposta Gemini recebida em ${duration}s! HTTP Status: ${genResponse.status}`);
+
+        if (genResponse.ok) {
+          genResult = await genResponse.json();
+          break;
+        }
+
+        const errText = await genResponse.text();
+        console.warn(`[GEMINI] Tentativa ${attempt + 1} de geração falhou: ${genResponse.status} - ${errText}`);
+        
+        if (attempt === 1) throw new Error(`Gemini Generation Error: ${genResponse.status} - ${errText}`);
+        
+        // Espera curta antes da próxima tentativa
+        await new Promise(r => setTimeout(r, 5000));
+
+      } catch (err: any) {
+        if (err.name === 'AbortError') {
+          console.warn(`[fnc_gerar_relatorio] Timeout de ${currentTimeout/1000}s atingido na tentativa ${attempt + 1}.`);
+          if (attempt === 1) {
+            throw new Error("O Gemini está demorando muito para processar esses arquivos (limite do servidor atingido). Por favor, tente novamente em alguns minutos com menos arquivos ou um prompt mais simples.");
+          }
+          // Espera um pouco para tentar a última vez
+          await new Promise(r => setTimeout(r, 5000));
+        } else {
+          throw err;
+        }
+      } finally {
+        clearTimeout(timeoutId);
       }
-
-      const errText = await genResponse.text();
-      console.warn(`[GEMINI] Tentativa ${attempt + 1} de geração falhou: ${genResponse.status} - ${errText}`);
-      if (attempt === 2) throw new Error(`Gemini Generation Error: ${genResponse.status} - ${errText}`);
-      await new Promise(r => setTimeout(r, Math.pow(2, attempt) * 2000));
     }
 
     const resultText = genResult.candidates?.[0]?.content?.parts?.[0]?.text;
