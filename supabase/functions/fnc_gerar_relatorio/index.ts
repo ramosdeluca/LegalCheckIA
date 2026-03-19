@@ -66,10 +66,9 @@ serve(async (req) => {
       return new Response(JSON.stringify({ error: "Saldo insuficiente ou assinatura inativa" }), { status: 403 });
     }
 
-    console.log(`[fnc_gerar_relatorio] Atualizando status para 'processando'...`);
-    // Alterar o status para processando
-    await supabase.from('analises').update({ status: 'processando' }).eq('id', recordId);
-    console.log(`[fnc_gerar_relatorio] Status atualizado!`);
+    // REMOVIDO: update status para 'processando' aqui para evitar loop de Webhook
+    // O status já é 'arquivos_prontos', que o Dashboard já entende como carregamento.
+    console.log(`[fnc_gerar_relatorio] Pulando atualização de status para evitar loop de Webhook.`);
 
     const modelName = "models/gemini-2.5-flash";
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/${modelName}:generateContent?key=${geminiApiKey}`;
