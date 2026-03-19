@@ -51,14 +51,22 @@ export default async function handler(req: any, res: any) {
 
     if (!uris.length) throw new Error("URIs dos arquivos não encontradas no banco.");
 
-    // 2. Chamada Gemini (v1 estável)
-    const modelName = "models/gemini-1.5-flash"; 
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1/${modelName}:generateContent?key=${geminiApiKey}`;
+    // 2. Chamada Gemini (v1beta é necessária para file_data)
+    const modelName = "models/gemini-2.5-flash"; 
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/${modelName}:generateContent?key=${geminiApiKey}`;
     
     // Preparar os componentes da mensagem
-    const parts = uris.map((uri: string) => ({
-      file_data: { file_uri: uri, mime_type: uri.endsWith('.pdf') ? 'application/pdf' : 'video/mp4' } // Mime-type aproximado
-    }));
+    const parts = uris.map((uri: string) => {
+      // Ajuste de mime_type baseado na extensão (melhora o entendimento do Gemini)
+      let mimeType = "video/mp4"; // Default
+      if (uri.toLowerCase().endsWith(".pdf")) mimeType = "application/pdf";
+      if (uri.toLowerCase().endsWith(".wav")) mimeType = "audio/wav";
+      if (uri.toLowerCase().endsWith(".mp3")) mimeType = "audio/mpeg";
+      
+      return {
+        file_data: { file_uri: uri, mime_type: mimeType }
+      };
+    });
     
     parts.push({ text: `TAREFA: Realize a análise jurídica objetiva dos arquivos fornecidos. \n\n${ANALYSIS_PROMPT}` });
 
