@@ -22,13 +22,20 @@ export default async function handler(req: any, res: any) {
 
   const { data: profile, error: profileError } = await supabase
     .from('profiles')
-    .select('id, plan_type, credits')
+    .select('id, plan_type, credits, subscription_id')
     .eq('asaas_customer_id', asaasCustomerId)
     .single();
 
   if (profileError || !profile) {
     console.error(`Usuário não encontrado: ${asaasCustomerId}`);
     return res.status(200).send('Usuário não localizado');
+  }
+
+  // Prevenção de "Race Condition": Se o webhook for de uma assinatura antiga que já foi trocada/deletada, ignore.
+  const reqSubscriptionId = subscription?.id || payment?.subscription;
+  if (reqSubscriptionId && profile.subscription_id && reqSubscriptionId !== profile.subscription_id) {
+    console.log(`Ignorando webhook: Assinatura do evento (${reqSubscriptionId}) difere da atual do usuário (${profile.subscription_id})`);
+    return res.status(200).send('Ignorado: Pertence a uma assinatura antiga/deletada do cliente.');
   }
 
   try {
