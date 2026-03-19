@@ -51,8 +51,8 @@ export default async function handler(req: any, res: any) {
 
     if (!uris.length) throw new Error("URIs dos arquivos não encontradas no banco.");
 
-    // 2. Chamada Gemini (v1beta é necessária para file_data)
-    const modelName = "models/gemini-2.5-flash"; 
+    // 2. Chamada Gemini (2.0 Flash exp é grátis e MUITO faster)
+    const modelName = "models/gemini-2.0-flash-exp"; 
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/${modelName}:generateContent?key=${geminiApiKey}`;
     
     // Preparar os componentes da mensagem
