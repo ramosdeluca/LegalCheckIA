@@ -176,7 +176,7 @@ serve(async (req) => {
     }
 
     const googleFiles: any[] = [];
-    const geminiFileUris: string[] = [];
+    const geminiFileData: any[] = [];
     const cacheParts: any[] = [];
 
     console.log(`Processando ${videoUrls.length} mídias e ${pdfUrls.length} PDFs...`);
@@ -192,7 +192,7 @@ serve(async (req) => {
 
       const file = await uploadToGemini(publicUrl, path);
       googleFiles.push(file);
-      geminiFileUris.push(file.uri);
+      geminiFileData.push({ uri: file.uri, mime: file.mimeType });
     }
 
     console.log("[fnc_upload_gemini] Arquivos processados. Salvando URIs no banco...");
@@ -201,7 +201,7 @@ serve(async (req) => {
     const { error: updateErr } = await supabase
       .from('analises')
       .update({ 
-        gemini_file_uris: geminiFileUris,
+        gemini_file_uris: geminiFileData,
         status: 'arquivos_prontos' 
       })
       .eq('id', currentAnaliseId);
@@ -210,7 +210,7 @@ serve(async (req) => {
 
     return new Response(JSON.stringify({ 
       success: true,
-      files: geminiFileUris.length
+      files: geminiFileData.length
     }), { 
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }, 
       status: 200 

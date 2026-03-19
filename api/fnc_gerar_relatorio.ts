@@ -56,17 +56,9 @@ export default async function handler(req: any, res: any) {
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/${modelName}:generateContent?key=${geminiApiKey}`;
     
     // Preparar os componentes da mensagem
-    const parts = uris.map((uri: string) => {
-      // Ajuste de mime_type baseado na extensão (melhora o entendimento do Gemini)
-      let mimeType = "video/mp4"; // Default
-      if (uri.toLowerCase().endsWith(".pdf")) mimeType = "application/pdf";
-      if (uri.toLowerCase().endsWith(".wav")) mimeType = "audio/wav";
-      if (uri.toLowerCase().endsWith(".mp3")) mimeType = "audio/mpeg";
-      
-      return {
-        file_data: { file_uri: uri, mime_type: mimeType }
-      };
-    });
+    const parts = uris.map((fileObj: any) => ({
+      file_data: { file_uri: fileObj.uri, mime_type: fileObj.mime }
+    }));
     
     parts.push({ text: `TAREFA: Realize a análise jurídica objetiva dos arquivos fornecidos. \n\n${ANALYSIS_PROMPT}` });
 
