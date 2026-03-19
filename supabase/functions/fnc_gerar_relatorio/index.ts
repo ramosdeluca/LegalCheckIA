@@ -48,23 +48,32 @@ serve(async (req) => {
       throw new Error("ID do usuário não encontrado na análise.");
     }
 
-    const { data: profile } = await supabase.from('profiles').select('credits, status_assinatura').eq('id', analiseData.user_id).single();
+    const userId = analiseData.user_id;
+
+    console.log(`[fnc_gerar_relatorio] Verificando créditos para usuario: ${userId}`);
+    // Verificar créditos
+    const { data: profile, error: profileError } = await supabase.from('profiles').select('credits, status_assinatura').eq('id', userId).single();
     
-    if (!profile || profile.credits <= 0) {
-      await supabase.from('analises').update({ status: 'erro', resultado_json: { erro: 'Sem créditos disponíveis. Faça o upgrade do seu plano clicando no avatar do seu perfil.' } }).eq('id', recordId);
-      return new Response(JSON.stringify({ error: "Créditos insuficientes" }), { status: 403 });
+    if (profileError || !profile) {
+      console.error(`[fnc_gerar_relatorio] Erro ao carregar perfil:`, profileError);
+      await supabase.from('analises').update({ status: 'erro', resultado_json: { erro: 'Usuário não encontrado.' } }).eq('id', recordId);
+      return new Response(JSON.stringify({ error: "Perfil não encontrado" }), { status: 404 });
     }
 
-    if (profile.status_assinatura !== 'active' && profile.credits !== 1) {
-      await supabase.from('analises').update({ status: 'erro', resultado_json: { erro: 'Sua assinatura não está ativa. Atualize seu meio de pagamento.' } }).eq('id', recordId);
-      return new Response(JSON.stringify({ error: "Assinatura inativa" }), { status: 403 });
+    if (profile.credits <= 0 && profile.status_assinatura !== 'active') {
+      console.warn(`[fnc_gerar_relatorio] Bloqueado: créditos=${profile.credits}, status=${profile.status_assinatura}`);
+      await supabase.from('analises').update({ status: 'erro', resultado_json: { erro: 'Saldo insuficiente ou assinatura inativa. Faça o upgrade do seu plano clicando no avatar do seu perfil.' } }).eq('id', recordId);
+      return new Response(JSON.stringify({ error: "Saldo insuficiente ou assinatura inativa" }), { status: 403 });
     }
 
+    console.log(`[fnc_gerar_relatorio] Atualizando status para 'processando'...`);
     // Alterar o status para processando
     await supabase.from('analises').update({ status: 'processando' }).eq('id', recordId);
+    console.log(`[fnc_gerar_relatorio] Status atualizado!`);
 
     const modelName = "models/gemini-2.5-flash";
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/${modelName}:generateContent?key=${geminiApiKey}`;
+    console.log(`[fnc_gerar_relatorio] Preparando chamada Gemini (${modelName})...`);
 
     const generationBody = {
       cachedContent: cacheName,
@@ -102,11 +111,13 @@ serve(async (req) => {
 
     let genResult;
     for (let attempt = 0; attempt < 3; attempt++) {
+      console.log(`[fnc_gerar_relatorio] Disparando fetch para Gemini (Tentativa ${attempt + 1}). URL: ${geminiUrl.split('key=')[0]}...`);
       const genResponse = await fetch(geminiUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(generationBody),
       });
+      console.log(`[fnc_gerar_relatorio] Resposta Gemini recebida! HTTP Status: ${genResponse.status}`);
 
       if (genResponse.ok) {
         genResult = await genResponse.json();
@@ -123,20 +134,20 @@ serve(async (req) => {
     const cleanJson = resultText?.replace(/```json\n?|```/g, '').trim();
     const resultJson = JSON.parse(cleanJson || "{}");
 
-    // == DEBITAR CRÉDITOS ==
-    const novoSaldo = profile.credits - 1;
-    await supabase.from('profiles').update({ credits: novoSaldo }).eq('id', analiseData.user_id);
-    console.log(`[fnc_gerar_relatorio] Crédito debitado com sucesso. Novo saldo: ${novoSaldo}`);
-
+    console.log(`[fnc_gerar_relatorio] Análise concluída. Salvando no banco... (Record: ${recordId})`);
+    
+    // Calcular expiração (4 horas)
     const expiry = new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString();
-    
-    console.log(`[fnc_gerar_relatorio] Análise concluída com sucesso para ${recordId}! Atualizando banco...`);
-    
+
     await supabase.from('analises').update({
       resultado_json: resultJson,
       status: 'concluido',
       gemini_cache_expiry: expiry 
     }).eq('id', recordId);
+
+    // Deduzir crédito após sucesso
+    await supabase.rpc('deduct_credit', { user_id: userId });
+    console.log(`[fnc_gerar_relatorio] Crédito deduzido para ${userId}`);
 
     console.log(`[fnc_gerar_relatorio] FINALIZADO com sucesso para ${recordId}.`);
     return new Response(JSON.stringify({ success: true }), { headers: { 'Content-Type': 'application/json' }, status: 200 });
