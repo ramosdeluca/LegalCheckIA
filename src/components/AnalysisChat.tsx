@@ -249,7 +249,7 @@ export const AnalysisChat: React.FC<AnalysisChatProps> = ({ analiseId, processoI
         {isExpired ? (
           <div className="flex items-center justify-center gap-2 py-3 bg-gray-50 rounded-2xl border border-gray-200 text-gray-400 text-xs font-medium">
             <Clock size={14} />
-            Sessão expirada (4h). O histórico foi salvo para consulta.
+            Sessão expirada (48h). O histórico foi salvo para consulta.
           </div>
         ) : (
           <form onSubmit={handleSendMessage} className="relative">

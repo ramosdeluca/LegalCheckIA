@@ -95,7 +95,7 @@ export const PaywallModal: React.FC<PaywallModalProps> = ({ isOpen, onClose }) =
                 </div>
                 <ul className="space-y-2 text-sm text-gray-600">
                   <li className="flex items-center gap-2"><CheckCircle2 size={16} className="text-green-500" /> 5 Análises Mensais</li>
-                  <li className="flex items-center gap-2"><CheckCircle2 size={16} className="text-green-500" /> Chat com a IA por 4 Horas</li>
+                  <li className="flex items-center gap-2"><CheckCircle2 size={16} className="text-green-500" /> Chat com a IA por 48 Horas</li>
                 </ul>
               </div>
 
@@ -119,7 +119,7 @@ export const PaywallModal: React.FC<PaywallModalProps> = ({ isOpen, onClose }) =
                 </div>
                 <ul className="space-y-2 text-sm text-gray-600">
                   <li className="flex items-center gap-2"><CheckCircle2 size={16} className="text-green-500" /> 20 Análises Mensais</li>
-                  <li className="flex items-center gap-2"><CheckCircle2 size={16} className="text-green-500" /> Chat com a IA por 4 Horas</li>
+                  <li className="flex items-center gap-2"><CheckCircle2 size={16} className="text-green-500" /> Chat com a IA por 48 Horas</li>
                 </ul>
               </div>
             </div>

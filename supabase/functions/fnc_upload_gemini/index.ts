@@ -197,11 +197,15 @@ serve(async (req) => {
 
     console.log("[fnc_upload_gemini] Arquivos processados. Salvando URIs no banco...");
     
+    // Define expiração padrão de 48h (prazo dos arquivos no Gemini)
+    const expiry = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
+
     // Salvando os links seguros (URIs) no banco para a função de relatório usar
     const { error: updateErr } = await supabase
       .from('analises')
       .update({ 
         gemini_file_uris: geminiFileData,
+        gemini_cache_expiry: expiry,
         status: 'arquivos_prontos' 
       })
       .eq('id', currentAnaliseId);

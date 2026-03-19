@@ -10,7 +10,7 @@ REQUISITO DE FORMATAÇÃO (Obrigatório retornar em JSON):
 2. "analise_tendencia": Aponte a tendência geral da prova de forma direta.
 3. "contradicoes": Liste no máximo as 5 contradições mais relevantes contendo:
    - "timestamp": Formato "Áudio X - MM:SS".
-   - "tipo": Tipo da contradição (ex: Factual, Depoimento contraditório, Documental).
+   - "tipo_contradicao": Tipo da contradição (ex: Factual, Depoimento contraditório, Documental).
    - "gravidade": Nível de impacto (Alta, Média ou Baixa).
    - "o_que_foi_dito": Personagem + transcrição fiel e MAIS DETALHADA da fala. Máximo 3 linhas.
    - "o_que_diz_o_processo": Prova documental/depoimento contraditório no processo.
@@ -103,7 +103,7 @@ export default async function handler(req: any, res: any) {
     const resultJson = JSON.parse(cleanJson || "{}");
 
     // 3. Sucesso - Update no Banco
-    const expiry = new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString();
+    const expiry = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
     await supabase.from('analises').update({
       resultado_json: resultJson,
       status: 'concluido',

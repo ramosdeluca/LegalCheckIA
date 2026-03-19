@@ -24,32 +24,32 @@ serve(async (req) => {
       return new Response(JSON.stringify({ error: "analiseId and message are required" }), { status: 400, headers: corsHeaders });
     }
 
-    // 1. Recuperar o Cache Context do Gemini
+    // 1. Recuperar os links seguros (URIs) do Gemini
     const { data: analise, error: analiseError } = await supabase
       .from('analises')
-      .select('gemini_cache_name, gemini_cache_expiry, status')
+      .select('gemini_file_uris, status')
       .eq('id', analiseId)
       .single();
-
+    
     if (analiseError || !analise) {
       throw new Error("Análise não encontrada.");
     }
 
-    // Verificar se o cache ainda é válido
-    const now = new Date();
-    const expiry = new Date(analise.gemini_cache_expiry);
-    
-    if (now > expiry || !analise.gemini_cache_name) {
-      return new Response(JSON.stringify({ 
-        error: "Sessão de chat expirada. O cache de 4 horas foi removido pelo Google para economizar tokens. Realize uma nova análise para reativar o chat." 
-      }), { status: 403, headers: corsHeaders });
+    const uris = analise.gemini_file_uris || [];
+    if (!uris.length) {
+      throw new Error("Arquivos da análise não encontrados. Realize o upload novamente.");
     }
 
-    // 2. Enviar para o Gemini usando o Cache
-    const modelName = "models/gemini-2.5-flash";
+    // 2. Enviar para o Gemini usando URIs
+    const modelName = "models/gemini-2.5-pro";
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/${modelName}:generateContent?key=${geminiApiKey}`;
 
-    // Recuperar histórico recente para contexto do chat (opcional, mas bom)
+    // Preparar os componentes da mensagem (Arquivos + Histórico + Nova Pergunta)
+    const fileParts = uris.map((fileObj: any) => ({
+      file_data: { file_uri: fileObj.uri, mime_type: fileObj.mime }
+    }));
+
+    // Recuperar histórico recente
     const { data: history } = await supabase
       .from('analise_chats')
       .select('role, content')
@@ -57,23 +57,26 @@ serve(async (req) => {
       .order('created_at', { ascending: true })
       .limit(10);
 
-    const contents = [
-      ...(history || []).map(h => ({
-        role: h.role === 'assistant' ? 'model' : 'user',
-        parts: [{ text: h.content }]
-      })),
-      { role: "user", parts: [{ text: message }] }
-    ];
+    const historyContents = (history || []).map(h => ({
+      role: h.role === 'assistant' ? 'model' : 'user',
+      parts: [{ text: h.content }]
+    }));
 
     const generationBody = {
-      cachedContent: analise.gemini_cache_name,
+      system_instruction: {
+        parts: [{ text: "Você é um assistente jurídico especialista em análise de audiências. Responda de forma direta e amigável em Markdown. Use o contexto dos arquivos fornecidos para embasar suas respostas." }]
+      },
       contents: [
-        ...contents.slice(0, -1),
+        ...historyContents,
         { 
           role: "user", 
-          parts: [{ text: `INSTRUÇÃO DE CHAT: Responda de forma direta e amigável em Markdown. NÃO inclua "resumo_executivo", "analise_tendencia" ou estruturas da análise principal. Foque APENAS em responder a pergunta do usuário usando o contexto. \n\nPERGUNTA: ${message}` }] 
+          parts: [
+            ...fileParts,
+            { text: `PERGUNTA DO USUÁRIO: ${message}` }
+          ] 
         }
-      ]
+      ],
+      generationConfig: { temperature: 0.2 }
     };
 
     const response = await fetch(geminiUrl, {
