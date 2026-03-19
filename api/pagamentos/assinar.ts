@@ -119,15 +119,30 @@ export default async function handler(req: any, res: any) {
       return res.status(400).json({ error: 'Erro ao criar assinatura', details: subData });
     }
 
+    // 4.5. Busca a primeira cobrança (fatura) gerada para essa assinatura
+    const paymentsResp = await fetch(`${ASAAS_URL}/subscriptions/${subData.id}/payments`, {
+      method: 'GET',
+      headers: { 'access_token': ASAAS_API_KEY || '' }
+    });
+    const paymentsData = await paymentsResp.json();
+    
+    // O Asaas não devolve o link na assinatura, devolve na "Cobrança" (Payment) filha dela.
+    const invoiceUrl = paymentsData.data?.[0]?.invoiceUrl;
+
+    if (!invoiceUrl) {
+      console.error("Fatura não gerada ou não encontrada para a assinatura:", paymentsData);
+      return res.status(400).json({ error: 'Link da fatura não retornado pelo Asaas', details: paymentsData });
+    }
+
     // 5. Atualiza o banco com os dados da tentativa de assinatura
     await supabase.from('profiles').update({
       asaas_customer_id: customerId,
       plan_type: plano,
       subscription_id: subData.id,
-      ultima_invoice_url: subData.invoiceUrl
+      ultima_invoice_url: invoiceUrl
     }).eq('id', userId);
 
-    return res.status(200).json({ invoiceUrl: subData.invoiceUrl, subscriptionId: subData.id, ...subData });
+    return res.status(200).json({ invoiceUrl, subscriptionId: subData.id });
   } catch (error: any) {
     console.error("Exception em /assinar:", error.message);
     return res.status(500).json({ error: 'Erro interno ao processar assinatura' });
