@@ -10,9 +10,11 @@ REQUISITO DE FORMATAÇÃO (Obrigatório retornar em JSON):
 2. "analise_tendencia": Aponte a tendência geral da prova de forma direta.
 3. "contradicoes": Liste no máximo as 5 contradições mais relevantes contendo:
    - "timestamp": Formato "Áudio X - MM:SS".
-   - "o_que_foi_dito": Personagem + fala precisa.
-   - "o_que_diz_o_processo": Prova documental/depoimento contraditório.
-   - "explicacao": Impacto jurídico (máx 2 linhas).
+   - "tipo": Tipo da contradição (ex: Factual, Depoimento contraditório, Documental).
+   - "gravidade": Nível de impacto (Alta, Média ou Baixa).
+   - "o_que_foi_dito": Personagem + transcrição fiel e MAIS DETALHADA da fala. Máximo 3 linhas.
+   - "o_que_diz_o_processo": Prova documental/depoimento contraditório no processo.
+   - "explicacao": Impacto jurídico da contradição.
 `;
 
 export default async function handler(req: any, res: any) {
