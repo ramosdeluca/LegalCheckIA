@@ -127,7 +127,7 @@ export default async function handler(req: any, res: any) {
       ultima_invoice_url: subData.invoiceUrl
     }).eq('id', userId);
 
-    return res.status(200).json({ invoiceUrl: subData.invoiceUrl, subscriptionId: subData.id });
+    return res.status(200).json({ invoiceUrl: subData.invoiceUrl, subscriptionId: subData.id, ...subData });
   } catch (error: any) {
     console.error("Exception em /assinar:", error.message);
     return res.status(500).json({ error: 'Erro interno ao processar assinatura' });

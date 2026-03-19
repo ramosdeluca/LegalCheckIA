@@ -50,7 +50,7 @@ export const PaywallModal: React.FC<PaywallModalProps> = ({ isOpen, onClose }) =
       if (data.invoiceUrl) {
         window.location.href = data.invoiceUrl;
       } else {
-        alert("Erro ao gerar link de pagamento: " + (data.error || "Desconhecido"));
+        alert("Erro ao gerar link de pagamento: " + (data.error || "Desconhecido") + "\n\nDebug Asaas: " + JSON.stringify(data));
       }
     } catch(e) {
       alert("Erro na conexão com o servidor de pagamentos.");
