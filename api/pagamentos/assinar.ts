@@ -28,11 +28,28 @@ export default async function handler(req: any, res: any) {
     // 1. Verifica se já existe o asaas_customer_id no perfil
     const { data: profile } = await supabase
       .from('profiles')
-      .select('asaas_customer_id')
+      .select('asaas_customer_id, subscription_id, status_assinatura, plan_type, ultima_invoice_url')
       .eq('id', userId)
       .single();
       
     let customerId = profile?.asaas_customer_id;
+
+    // 1.1 RECUPERAÇÃO DE FATURA: Se ele já iniciou assinatura INATIVA para o mesmo plano, retornar mesma URL.
+    if (profile?.subscription_id && profile?.status_assinatura === 'inactive' && profile?.plan_type === plano && profile?.ultima_invoice_url) {
+      return res.status(200).json({ invoiceUrl: profile.ultima_invoice_url, subscriptionId: profile.subscription_id });
+    }
+
+    // 1.2 LIMPEZA: Se ele já tinha uma assinatura inativa de outro plano abandonada, remove lá no Asaas
+    if (profile?.subscription_id && profile?.status_assinatura === 'inactive' && profile?.plan_type !== plano) {
+      try {
+        await fetch(`${ASAAS_URL}/subscriptions/${profile.subscription_id}`, {
+          method: 'DELETE',
+          headers: { 'access_token': ASAAS_API_KEY || '' }
+        });
+      } catch (err) {
+        console.error("Aviso: Falha ao deletar assinatura abandonada do asaas", err);
+      }
+    }
 
     // 2. Se não existir, cria o cliente no Asaas
     if (!customerId) {
