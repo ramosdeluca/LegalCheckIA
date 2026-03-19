@@ -40,19 +40,27 @@ export default async function handler(req: any, res: any) {
   const cacheName = record.gemini_cache_name;
 
   try {
-    // 1. Carregar Dados
+    // 1. Carregar Dados da Análise
     const { data: recordData, error: fetchErr } = await supabase
       .from('analises')
-      .select('user_id, gemini_file_uris, profiles(credits)')
+      .select('user_id, gemini_file_uris')
       .eq('id', recordId)
       .single();
       
-    if (fetchErr || !recordData?.user_id) throw new Error("Usuário não encontrado.");
+    if (fetchErr || !recordData) throw new Error(`Análise ${recordId} não encontrada.`);
     
     const userId = recordData.user_id;
-    // @ts-ignore - Estutura do join do supabase
-    const currentCredits = recordData.profiles?.credits || 0;
     const uris = recordData.gemini_file_uris || [];
+
+    // 2. Carregar Créditos do Perfil (separado para evitar erro de join)
+    const { data: profileData, error: profileErr } = await supabase
+      .from('profiles')
+      .select('credits')
+      .eq('id', userId)
+      .single();
+
+    if (profileErr || !profileData) throw new Error("Perfil do usuário não encontrado.");
+    const currentCredits = profileData.credits || 0;
 
     if (currentCredits <= 0) {
       throw new Error("Saldo insuficiente de créditos.");
