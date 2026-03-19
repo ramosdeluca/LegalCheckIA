@@ -18,116 +18,50 @@ REQUISITO DE FORMATAÇÃO (Obrigatório retornar em JSON):
 
 serve(async (req) => {
   const supabase = createClient(supabaseUrl, supabaseServiceKey);
-  let recordId: string | null = null;
 
-  try {
-    const body = await req.json();
-    
-    // Suporte tanto para chamada direta do client quanto para Database Webhook
-    const record = body.record || body;
-    console.log(`[fnc_gerar_relatorio] Webhook recebido! Status: ${record?.status}, ID: ${record?.id}`);
+  const body = await req.json().catch(() => ({}));
+  const record = body.record || body;
 
-    if (!record || !record.id || !record.gemini_cache_name) {
-      console.warn("Payload inválido ou sem gemini_cache_name:", body);
-      return new Response(JSON.stringify({ error: "Invalid payload or missing cache name" }), { status: 400 });
-    }
+  console.log(`[fnc_gerar_relatorio] Webhook recebido! Status: ${record?.status}, ID: ${record?.id}`);
 
-    if (record.status !== 'arquivos_prontos') {
-      console.log(`[fnc_gerar_relatorio] Ignorando webhook: status atual é '${record.status}'.`);
-      return new Response(JSON.stringify({ message: "Ignorado" }), { status: 200 });
-    }
+  if (record?.status !== 'arquivos_prontos' || !record?.gemini_cache_name) {
+    console.log(`[fnc_gerar_relatorio] Ignorando webhook: status '${record?.status}' ou sem cache.`);
+    return new Response(JSON.stringify({ message: "Ignorado" }), { status: 200 });
+  }
 
-    recordId = record.id;
-    const cacheName = record.gemini_cache_name;
+  const recordId = record.id;
+  const cacheName = record.gemini_cache_name;
 
-    console.log(`[fnc_gerar_relatorio] Iniciando análise para ${recordId} usando cache: ${cacheName}`);
+  // Lógica em Background
+  const processAnalysis = (async () => {
+    try {
+      console.log(`[fnc_gerar_relatorio] Iniciando background para ${recordId}`);
+      
+      // Carregar user_id do banco
+      const { data: recordData, error: fetchErr } = await supabase.from('analises').select('user_id').eq('id', recordId).single();
+      if (fetchErr || !recordData?.user_id) throw new Error("Usuário não encontrado para esta análise.");
+      const userId = recordData.user_id;
 
-    // == LÓGICA DE CRÉDITOS E ASSINATURA ==
-    const { data: analiseData } = await supabase.from('analises').select('user_id').eq('id', recordId).single();
-    if (!analiseData?.user_id) {
-      throw new Error("ID do usuário não encontrado na análise.");
-    }
+      // Verificar créditos
+      const { data: profile } = await supabase.from('profiles').select('credits, status_assinatura').eq('id', userId).single();
+      if (!profile || (profile.credits <= 0 && profile.status_assinatura !== 'active')) {
+        throw new Error("Saldo insuficiente ou assinatura inativa.");
+      }
 
-    const userId = analiseData.user_id;
+      const modelName = "models/gemini-2.5-flash";
+      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/${modelName}:generateContent?key=${geminiApiKey}`;
+      
+      const generationBody = {
+        cachedContent: cacheName,
+        contents: [{ role: "user", parts: [{ text: `TAREFA: Realize a análise jurídica objetiva dos arquivos em cache. \n\n${ANALYSIS_PROMPT}` }] }],
+        generationConfig: { temperature: 0.0 },
+      };
 
-    console.log(`[fnc_gerar_relatorio] Verificando créditos para usuario: ${userId}`);
-    // Verificar créditos
-    const { data: profile, error: profileError } = await supabase.from('profiles').select('credits, status_assinatura').eq('id', userId).single();
-    
-    if (profileError || !profile) {
-      console.error(`[fnc_gerar_relatorio] Erro ao carregar perfil:`, profileError);
-      await supabase.from('analises').update({ status: 'erro', resultado_json: { erro: 'Usuário não encontrado.' } }).eq('id', recordId);
-      return new Response(JSON.stringify({ error: "Perfil não encontrado" }), { status: 404 });
-    }
-
-    if (profile.credits <= 0 && profile.status_assinatura !== 'active') {
-      console.warn(`[fnc_gerar_relatorio] Bloqueado: créditos=${profile.credits}, status=${profile.status_assinatura}`);
-      await supabase.from('analises').update({ status: 'erro', resultado_json: { erro: 'Saldo insuficiente ou assinatura inativa. Faça o upgrade do seu plano clicando no avatar do seu perfil.' } }).eq('id', recordId);
-      return new Response(JSON.stringify({ error: "Saldo insuficiente ou assinatura inativa" }), { status: 403 });
-    }
-
-    // REMOVIDO: update status para 'processando' aqui para evitar loop de Webhook
-    // O status já é 'arquivos_prontos', que o Dashboard já entende como carregamento.
-    console.log(`[fnc_gerar_relatorio] Pulando atualização de status para evitar loop de Webhook.`);
-
-    const modelName = "models/gemini-2.5-flash";
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/${modelName}:generateContent?key=${geminiApiKey}`;
-    console.log(`[fnc_gerar_relatorio] Preparando chamada Gemini (${modelName})...`);
-
-    const generationBody = {
-      cachedContent: cacheName,
-      contents: [{ 
-        role: "user", 
-        parts: [{ text: `TAREFA: Realize a análise jurídica objetiva dos arquivos em cache. \n\n${ANALYSIS_PROMPT}` }] 
-      }],
-      generationConfig: {
-        responseMimeType: "application/json",
-        temperature: 0.1,
-        maxOutputTokens: 4096,
-        responseSchema: {
-          type: "object",
-          properties: {
-            resumo_executivo: { type: "string" },
-            analise_tendencia: { type: "string" },
-            contradicoes: {
-              type: "array",
-              items: {
-                type: "object",
-                properties: {
-                  timestamp: { type: "string" },
-                  o_que_foi_dito: { type: "string" },
-                  o_que_diz_o_processo: { type: "string" },
-                  tipo_contradicao: { type: "string" },
-                  gravidade: { type: "string", enum: ["Baixa", "Média", "Alta"] },
-                  explicacao: { type: "string" },
-                },
-                required: ["timestamp", "o_que_foi_dito", "o_que_diz_o_processo", "tipo_contradicao", "gravidade", "explicacao"],
-              },
-            }
-          },
-          required: ["resumo_executivo", "analise_tendencia", "contradicoes"],
-        }
-      },
-      safetySettings: [
-        { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
-        { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
-        { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
-        { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" }
-      ]
-    };
-
-    let genResult;
-    // Reduzido para 2 tentativas para caber no limite de 300s do Pro Plan se houver timeout
-    for (let attempt = 0; attempt < 2; attempt++) {
       const controller = new AbortController();
-      // Tentativa 1: 150s, Tentativa 2: 100s
-      const currentTimeout = attempt === 0 ? 150000 : 100000;
-      const timeoutId = setTimeout(() => controller.abort(), currentTimeout);
+      const timeoutId = setTimeout(() => controller.abort(), 190000); // 190s
 
       try {
         const startTime = Date.now();
-        console.log(`[fnc_gerar_relatorio] Disparando fetch para Gemini (Tentativa ${attempt + 1}). Timeout: ${currentTimeout/1000}s...`);
-        
         const genResponse = await fetch(geminiUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -135,83 +69,52 @@ serve(async (req) => {
           signal: controller.signal
         });
 
+        if (!genResponse.ok) {
+          const errText = await genResponse.text();
+          throw new Error(`Gemini Error: ${genResponse.status} - ${errText}`);
+        }
+
+        const genResult = await genResponse.json();
         const duration = ((Date.now() - startTime) / 1000).toFixed(1);
-        console.log(`[fnc_gerar_relatorio] Resposta Gemini recebida em ${duration}s! HTTP Status: ${genResponse.status}`);
+        console.log(`[fnc_gerar_relatorio] Gemini respondeu em ${duration}s`);
 
-        if (genResponse.ok) {
-          genResult = await genResponse.json();
-          break;
-        }
+        const resultText = genResult.candidates?.[0]?.content?.parts?.[0]?.text;
+        const cleanJson = resultText?.replace(/```json\n?|```/g, '').trim();
+        const resultJson = JSON.parse(cleanJson || "{}");
 
-        const errText = await genResponse.text();
-        console.warn(`[GEMINI] Tentativa ${attempt + 1} de geração falhou: ${genResponse.status} - ${errText}`);
-        
-        if (attempt === 1) throw new Error(`Gemini Generation Error: ${genResponse.status} - ${errText}`);
-        
-        // Espera curta antes da próxima tentativa
-        await new Promise(r => setTimeout(r, 5000));
+        const expiry = new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString();
+        await supabase.from('analises').update({
+          resultado_json: resultJson,
+          status: 'concluido',
+          gemini_cache_expiry: expiry 
+        }).eq('id', recordId);
 
-      } catch (err: any) {
-        if (err.name === 'AbortError') {
-          console.warn(`[fnc_gerar_relatorio] Timeout de ${currentTimeout/1000}s atingido na tentativa ${attempt + 1}.`);
-          if (attempt === 1) {
-            throw new Error("O Gemini está demorando muito para processar esses arquivos (limite do servidor atingido). Por favor, tente novamente em alguns minutos com menos arquivos ou um prompt mais simples.");
-          }
-          // Espera um pouco para tentar a última vez
-          await new Promise(r => setTimeout(r, 5000));
-        } else {
-          throw err;
-        }
+        await supabase.rpc('deduct_credit', { user_id: userId });
+        console.log(`[fnc_gerar_relatorio] SUCESSO para ${recordId}`);
+
+      } catch (innerErr: any) {
+        if (innerErr.name === 'AbortError') throw new Error("Tempo limite do Gemini atingido.");
+        throw innerErr;
       } finally {
         clearTimeout(timeoutId);
       }
+
+    } catch (error: any) {
+      console.error(`[fnc_gerar_relatorio] Erro no background para ${recordId}:`, error.message);
+      if (recordId) {
+        await supabase.from('analises').update({
+          status: 'erro',
+          resultado_json: { erro: error.message }
+        }).eq('id', recordId);
+      }
     }
+  })();
 
-    const candidate = genResult.candidates?.[0];
-    const finishReason = candidate?.finishReason;
-    const resultText = candidate?.content?.parts?.[0]?.text;
-    
-    console.log(`[fnc_gerar_relatorio] Finish Reason: ${finishReason}`);
-    console.log(`[fnc_gerar_relatorio] Resposta bruta do Gemini (primeiros 500 chars): ${resultText?.substring(0, 500)}`);
-    
-    const cleanJson = resultText?.replace(/```json\n?|```/g, '').trim();
-    let resultJson;
-    try {
-      resultJson = JSON.parse(cleanJson || "{}");
-    } catch (parseError: any) {
-      console.error(`[fnc_gerar_relatorio] Falha ao parsear JSON. Erro: ${parseError.message}`);
-      console.error(`[fnc_gerar_relatorio] Texto que falhou (completo): ${cleanJson}`);
-      throw new Error(`Erro na formatação da resposta do Gemini: ${parseError.message}`);
-    }
+  // @ts-ignore: EdgeRuntime is available in Supabase
+  EdgeRuntime.waitUntil(processAnalysis);
 
-    console.log(`[fnc_gerar_relatorio] Análise concluída. Salvando no banco... (Record: ${recordId})`);
-    
-    // Calcular expiração (4 horas)
-    const expiry = new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString();
-
-    await supabase.from('analises').update({
-      resultado_json: resultJson,
-      status: 'concluido',
-      gemini_cache_expiry: expiry 
-    }).eq('id', recordId);
-
-    // Deduzir crédito após sucesso
-    await supabase.rpc('deduct_credit', { user_id: userId });
-    console.log(`[fnc_gerar_relatorio] Crédito deduzido para ${userId}`);
-
-    console.log(`[fnc_gerar_relatorio] FINALIZADO com sucesso para ${recordId}.`);
-    return new Response(JSON.stringify({ success: true }), { headers: { 'Content-Type': 'application/json' }, status: 200 });
-
-  } catch (error: any) {
-    console.error(`[fnc_gerar_relatorio] ERRO CRÍTICO para ${recordId}:`, error.message);
-    
-    if (recordId) {
-      await supabase.from('analises').update({
-        status: 'erro',
-        resultado_json: { erro: error.message }
-      }).eq('id', recordId);
-    }
-
-    return new Response(JSON.stringify({ error: error.message }), { status: 500 });
-  }
+  return new Response(JSON.stringify({ message: "Analysis started in background" }), { 
+    headers: { 'Content-Type': 'application/json' }, 
+    status: 202 
+  });
 });

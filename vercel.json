@@ -1,0 +1,7 @@
+{
+  "functions": {
+    "api/fnc_gerar_relatorio.ts": {
+      "maxDuration": 300
+    }
+  }
+}
