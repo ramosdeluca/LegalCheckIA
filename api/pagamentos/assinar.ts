@@ -36,11 +36,25 @@ export default async function handler(req: any, res: any) {
 
     // 1.1 RECUPERAÇÃO DE FATURA: Se ele já iniciou assinatura INATIVA para o mesmo plano, retornar mesma URL.
     if (profile?.subscription_id && profile?.status_assinatura === 'inactive' && profile?.plan_type === plano && profile?.ultima_invoice_url) {
-      return res.status(200).json({ invoiceUrl: profile.ultima_invoice_url, subscriptionId: profile.subscription_id });
+      try {
+        // Validação adicional: Consultar o Asaas se a assinatura velha não expirou
+        const checkResp = await fetch(`${ASAAS_URL}/subscriptions/${profile.subscription_id}`, {
+          method: 'GET',
+          headers: { 'access_token': ASAAS_API_KEY || '' }
+        });
+        const subStatus = await checkResp.json();
+        
+        // Se ela ainda estiver ativa (aguardando limite/cartão), reaproveitamos:
+        if (checkResp.ok && subStatus.status === 'ACTIVE') {
+          return res.status(200).json({ invoiceUrl: profile.ultima_invoice_url, subscriptionId: profile.subscription_id });
+        }
+      } catch (err) {
+        console.error("Erro ao validar fatura pendente:", err);
+      }
     }
 
-    // 1.2 LIMPEZA: Se ele já tinha uma assinatura inativa de outro plano abandonada, remove lá no Asaas
-    if (profile?.subscription_id && profile?.status_assinatura === 'inactive' && profile?.plan_type !== plano) {
+    // 1.2 LIMPEZA: Se ele já tinha uma assinatura inativa (mesmo plano que expirou, ou plano diferente)
+    if (profile?.subscription_id && profile?.status_assinatura === 'inactive') {
       try {
         await fetch(`${ASAAS_URL}/subscriptions/${profile.subscription_id}`, {
           method: 'DELETE',
@@ -93,7 +107,7 @@ export default async function handler(req: any, res: any) {
         value: valor,
         nextDueDate: formattedDueDate, 
         cycle: 'MONTHLY',
-        description: `Plano ${plano.charAt(0).toUpperCase() + plano.slice(1)} - LegalCheck IA`,
+        description: `Plano ${plano.charAt(0).toUpperCase() + plano.slice(1)} - ExpertIA`,
         split: [{ walletId: PARTNER_WALLET_ID, percentualValue: 60 }]
       })
     });

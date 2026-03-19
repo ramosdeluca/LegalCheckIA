@@ -135,7 +135,7 @@ export const AnalysisReport: React.FC<AnalysisReportProps> = ({
   const handleShare = async () => {
     setIsSharing(true);
     const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-    const shareText = `Relatório de Contradições Jurídicas\nProcesso: ${processNumber}\nCliente: ${clientName}\n\nConfira os detalhes no LegalCheck.`;
+    const shareText = `Relatório de Contradições Jurídicas\nProcesso: ${processNumber}\nCliente: ${clientName}\n\nConfira os detalhes no ExpertIA.`;
     const blob = await generatePDFBlob();
     if (!blob) {
       alert('Erro ao gerar o PDF para compartilhamento.');
@@ -171,7 +171,7 @@ export const AnalysisReport: React.FC<AnalysisReportProps> = ({
   };
 
   const handleWhatsAppShare = () => {
-    const text = `Relatório de Contradições Jurídicas\nProcesso: ${processNumber}\nCliente: ${clientName}\n\nConfira os detalhes no LegalCheck.`;
+    const text = `Relatório de Contradições Jurídicas\nProcesso: ${processNumber}\nCliente: ${clientName}\n\nConfira os detalhes no ExpertIA.`;
     const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
     const whatsappUrl = isMobile
       ? `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`
@@ -304,7 +304,7 @@ export const AnalysisReport: React.FC<AnalysisReportProps> = ({
                   </div>
                   <div>
                     <h1 className="text-lg md:text-3xl font-serif text-[#1a1a1a] leading-tight tracking-tight mb-0.5">Relatório Oficial de Contradições</h1>
-                    <p className="text-[9px] md:text-xs text-[#5A5A40] uppercase tracking-[0.2em] font-bold">LegalCheck IA • Análise Jurídica</p>
+                    <p className="text-[9px] md:text-xs text-[#5A5A40] uppercase tracking-[0.2em] font-bold">ExpertIA • Análise Jurídica</p>
                   </div>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8 pt-6 border-t border-gray-100">

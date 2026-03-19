@@ -170,7 +170,7 @@ export const Register: React.FC<RegisterProps> = ({ onSwitchToLogin }) => {
             <CheckCircle2 size={40} />
           </div>
           <h2 className="text-2xl font-serif mb-4">Cadastro Realizado!</h2>
-          <p className="text-gray-500 mb-8">Verifique seu e-mail para confirmar a conta e começar a usar o LegalCheck IA.</p>
+          <p className="text-gray-500 mb-8">Verifique seu e-mail para confirmar a conta e começar a usar o ExpertIA.</p>
           <button
             onClick={onSwitchToLogin}
             className="w-full bg-[#5A5A40] text-white rounded-2xl py-4 font-medium hover:bg-[#4a4a35] transition-all shadow-lg shadow-[#5A5A40]/20"
@@ -190,7 +190,7 @@ export const Register: React.FC<RegisterProps> = ({ onSwitchToLogin }) => {
         className="max-w-xl w-full bg-white rounded-[32px] shadow-xl p-6 md:p-10 border border-black/5"
       >
         <div className="text-center mb-10">
-          <h1 className="text-3xl md:text-4xl font-serif font-light mb-2 tracking-tight text-[#1a1a1a]">LegalCheck IA</h1>
+          <h1 className="text-3xl md:text-4xl font-serif font-light mb-2 tracking-tight text-[#1a1a1a]">ExpertIA</h1>
           <p className="text-[10px] text-gray-400 uppercase tracking-[0.3em] font-bold">Portal do Advogado • Novo Cadastro</p>
         </div>
 

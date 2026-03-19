@@ -307,7 +307,7 @@ export const Dashboard: React.FC = () => {
           <div className="w-11 h-11 bg-gradient-to-br from-[#5A5A40] to-[#3A3A20] rounded-xl flex items-center justify-center text-white shadow-lg shadow-[#5A5A40]/20">
             <Scale size={22} />
           </div>
-          <h1 className="text-xl md:text-2xl font-serif text-[#1a1a1a] tracking-tight">LegalCheck IA</h1>
+          <h1 className="text-xl md:text-2xl font-serif text-[#1a1a1a] tracking-tight">ExpertIA</h1>
         </div>
 
         <div className="flex items-center gap-3 md:gap-6">

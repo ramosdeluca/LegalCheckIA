@@ -43,7 +43,7 @@ export const Login: React.FC<LoginProps> = ({ onSwitchToRegister }) => {
         className="max-w-md w-full bg-white rounded-3xl shadow-xl p-8 border border-black/5"
       >
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-serif font-light text-[#1a1a1a] mb-2">LegalCheck IA</h1>
+          <h1 className="text-3xl font-serif font-light text-[#1a1a1a] mb-2">ExpertIA</h1>
           <p className="text-sm text-gray-500 uppercase tracking-widest">Acesse sua conta</p>
         </div>
 
