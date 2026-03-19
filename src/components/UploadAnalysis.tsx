@@ -64,6 +64,10 @@ export const UploadAnalysis: React.FC<UploadAnalysisProps> = ({ processoId, onAn
     if (!user) return;
 
     if (profile && profile.credits <= 0) {
+      if (profile.status_assinatura === 'active') {
+        alert("Você atingiu o limite de análises do seu plano. Novos créditos serão liberados automaticamente no seu próximo ciclo de faturamento.");
+        return;
+      }
       setShowPaywall(true);
       return;
     }

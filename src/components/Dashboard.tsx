@@ -176,6 +176,10 @@ export const Dashboard: React.FC = () => {
 
     // Verificar se tem creditos
     if (profile && profile.credits <= 0) {
+      if (profile.status_assinatura === 'active') {
+        alert("Você atingiu o limite de análises do seu plano. Novos créditos serão liberados automaticamente no seu próximo ciclo de faturamento.");
+        return;
+      }
       setShowNewProcessoModal(false);
       setShowPaywall(true);
       return;
@@ -363,6 +367,21 @@ export const Dashboard: React.FC = () => {
             >
               Fazer Upgrade Agora
             </button>
+          </div>
+        )}
+
+        {/* Novo Banner para Assinantes Ativos sem créditos */}
+        {profile && profile.credits <= 0 && profile.status_assinatura === 'active' && (
+          <div className="lg:col-span-12 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-100 rounded-[24px] p-6 flex flex-col md:flex-row items-center justify-between gap-6 shadow-sm mb-2">
+            <div className="flex items-start gap-4">
+              <div className="w-12 h-12 bg-blue-100 text-blue-600 rounded-full flex items-center justify-center shrink-0">
+                <CreditCard size={24} />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-blue-900 mb-1">Limite do Plano atingido!</h3>
+                <p className="text-blue-700 text-sm">Você utilizou todos os créditos do seu plano para este ciclo. Novos créditos serão liberados automaticamente na sua próxima fatura.</p>
+              </div>
+            </div>
           </div>
         )}
 
