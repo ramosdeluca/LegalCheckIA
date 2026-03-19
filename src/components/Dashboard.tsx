@@ -7,6 +7,7 @@ import { UploadAnalysis } from './UploadAnalysis';
 import { AnalysisReport } from './AnalysisReport';
 import { ProfileSettings } from './ProfileSettings';
 import { AnalysisChat } from './AnalysisChat';
+import { PaywallModal } from './PaywallModal';
 
 export const Dashboard: React.FC = () => {
   const { user, signOut } = useAuth();
@@ -21,6 +22,7 @@ export const Dashboard: React.FC = () => {
   const [isDeleting, setIsDeleting] = useState(false);
   const { profile } = useAuth();
   const [showProfileSettings, setShowProfileSettings] = useState(false);
+  const [showPaywall, setShowPaywall] = useState(false);
 
   // New Processo Form
   const [numero, setNumero] = useState('');
@@ -170,6 +172,13 @@ export const Dashboard: React.FC = () => {
     if (!user) return;
     setModalError(null);
 
+    // Verificar se tem creditos
+    if (profile && profile.credits <= 0) {
+      setShowNewProcessoModal(false);
+      setShowPaywall(true);
+      return;
+    }
+
     // Verificar se o processo já existe
     const { data: existing, error: checkError } = await supabase
       .from('processos')
@@ -302,6 +311,13 @@ export const Dashboard: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-3 md:gap-6">
+          <div className="hidden sm:flex items-center gap-2 px-4 py-2 bg-[#5A5A40]/5 border border-[#5A5A40]/10 rounded-full shadow-sm">
+            <div className={`w-2 h-2 rounded-full ${profile?.credits > 0 ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`} />
+            <span className="text-sm font-bold text-[#5A5A40]">
+              {profile?.credits ?? 0} {profile?.credits === 1 ? 'Crédito' : 'Créditos'}
+            </span>
+          </div>
+
           <button
             onClick={() => setShowProfileSettings(true)}
             className="flex items-center gap-2 px-3 py-2 text-sm text-gray-600 hover:bg-gray-50 rounded-xl transition-all group"
@@ -327,6 +343,27 @@ export const Dashboard: React.FC = () => {
       </nav>
 
       <main className="max-w-7xl mx-auto p-4 md:p-8 grid grid-cols-1 lg:grid-cols-12 gap-8">
+        {/* Banner de Assinatura */}
+        {profile && profile.credits <= 0 && profile.status_assinatura === 'inactive' && (
+          <div className="lg:col-span-12 bg-gradient-to-r from-red-50 to-orange-50 border border-red-100 rounded-[24px] p-6 flex flex-col md:flex-row items-center justify-between gap-6 shadow-sm mb-2">
+            <div className="flex items-start gap-4">
+              <div className="w-12 h-12 bg-red-100 text-red-600 rounded-full flex items-center justify-center shrink-0">
+                <AlertIcon size={24} />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-red-900 mb-1">Seus créditos acabaram!</h3>
+                <p className="text-red-700 text-sm">Para continuar analisando processos com Inteligência Artificial e criar novos processos, você precisa assinar um de nossos planos.</p>
+              </div>
+            </div>
+            <button
+              onClick={() => setShowPaywall(true)}
+              className="px-6 py-3 bg-red-600 hover:bg-red-700 text-white font-bold rounded-xl shadow-lg shadow-red-600/20 transition-all font-sans shrink-0 uppercase tracking-wide text-sm"
+            >
+              Fazer Upgrade Agora
+            </button>
+          </div>
+        )}
+
         {/* Left Column: Processos List */}
         <div className="lg:col-span-4 space-y-6">
           <div className="flex items-center justify-between">
@@ -632,6 +669,7 @@ export const Dashboard: React.FC = () => {
           <ProfileSettings onClose={() => setShowProfileSettings(false)} />
         )}
       </AnimatePresence>
+      <PaywallModal isOpen={showPaywall} onClose={() => setShowPaywall(false)} />
     </div>
   );
 };

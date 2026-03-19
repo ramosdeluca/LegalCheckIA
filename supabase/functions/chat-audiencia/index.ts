@@ -90,7 +90,10 @@ serve(async (req) => {
     const result = await response.json();
     const aiResponse = result.candidates?.[0]?.content?.parts?.[0]?.text;
 
-    if (!aiResponse) throw new Error("IA não retornou resposta.");
+    if (!aiResponse) {
+      console.error("Gemini returned no response text. FULL RESULT:", JSON.stringify(result, null, 2));
+      throw new Error(`Gemini não retornou texto. Motivo provável: ${result.candidates?.[0]?.finishReason || "Desconhecido"}`);
+    }
 
     // 3. Salvar Histórico Permanentemente
     const { data: insertedData, error: insertError } = await supabase.from('analise_chats').insert([

@@ -41,6 +41,24 @@ serve(async (req) => {
 
     console.log(`[fnc_gerar_relatorio] Iniciando análise para ${recordId} usando cache: ${cacheName}`);
 
+    // == LÓGICA DE CRÉDITOS E ASSINATURA ==
+    const { data: analiseData } = await supabase.from('analises').select('user_id').eq('id', recordId).single();
+    if (!analiseData?.user_id) {
+      throw new Error("ID do usuário não encontrado na análise.");
+    }
+
+    const { data: profile } = await supabase.from('profiles').select('credits, status_assinatura').eq('id', analiseData.user_id).single();
+    
+    if (!profile || profile.credits <= 0) {
+      await supabase.from('analises').update({ status: 'erro', resultado_json: { erro: 'Sem créditos disponíveis. Faça o upgrade do seu plano clicando no avatar do seu perfil.' } }).eq('id', recordId);
+      return new Response(JSON.stringify({ error: "Créditos insuficientes" }), { status: 403 });
+    }
+
+    if (profile.status_assinatura !== 'active' && profile.credits !== 1) {
+      await supabase.from('analises').update({ status: 'erro', resultado_json: { erro: 'Sua assinatura não está ativa. Atualize seu meio de pagamento.' } }).eq('id', recordId);
+      return new Response(JSON.stringify({ error: "Assinatura inativa" }), { status: 403 });
+    }
+
     // Alterar o status para processando (apenas para consistência de UI, embora o frontend possa não depender disso agora)
     await supabase.from('analises').update({ status: 'processando' }).eq('id', recordId);
 
@@ -103,6 +121,11 @@ serve(async (req) => {
     const resultText = genResult.candidates?.[0]?.content?.parts?.[0]?.text;
     const cleanJson = resultText?.replace(/```json\n?|```/g, '').trim();
     const resultJson = JSON.parse(cleanJson || "{}");
+
+    // == DEBITAR CRÉDITOS ==
+    const novoSaldo = profile.credits - 1;
+    await supabase.from('profiles').update({ credits: novoSaldo }).eq('id', analiseData.user_id);
+    console.log(`[fnc_gerar_relatorio] Crédito debitado com sucesso. Novo saldo: ${novoSaldo}`);
 
     const expiry = new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString();
     

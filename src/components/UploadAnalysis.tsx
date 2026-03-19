@@ -7,6 +7,7 @@ import { supabase } from '../supabaseClient';
 import { useAuth } from '../AuthContext';
 import { extractAudioFromVideo } from '../utils/audioExtractor';
 import { generateFilesHashes, areHashesEqual } from '../utils/hashUtils';
+import { PaywallModal } from './PaywallModal';
 
 // Set up PDF.js worker
 pdfjsLib.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
@@ -17,12 +18,15 @@ interface UploadAnalysisProps {
 }
 
 export const UploadAnalysis: React.FC<UploadAnalysisProps> = ({ processoId, onAnalysisStarted }) => {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const [videoFiles, setVideoFiles] = useState<File[]>([]);
   const [pdfFiles, setPdfFiles] = useState<File[]>([]);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [progress, setProgress] = useState('');
   const [error, setError] = useState<string | null>(null);
+
+  // Paywall states
+  const [showPaywall, setShowPaywall] = useState(false);
 
   const extractTextFromPdf = async (file: File): Promise<string> => {
     try {
@@ -58,6 +62,11 @@ export const UploadAnalysis: React.FC<UploadAnalysisProps> = ({ processoId, onAn
   const handleStartAnalysis = async () => {
     if (videoFiles.length === 0 && pdfFiles.length === 0) return;
     if (!user) return;
+
+    if (profile && profile.credits <= 0) {
+      setShowPaywall(true);
+      return;
+    }
 
     setIsAnalyzing(true);
     setError(null);
@@ -353,6 +362,9 @@ export const UploadAnalysis: React.FC<UploadAnalysisProps> = ({ processoId, onAn
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Paywall Banner/Modal */}
+      <PaywallModal isOpen={showPaywall} onClose={() => setShowPaywall(false)} />
     </div>
   );
 };
