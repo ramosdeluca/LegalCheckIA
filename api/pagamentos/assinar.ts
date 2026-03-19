@@ -134,12 +134,13 @@ export default async function handler(req: any, res: any) {
       return res.status(400).json({ error: 'Link da fatura não retornado pelo Asaas', details: paymentsData });
     }
 
-    // 5. Atualiza o banco com os dados da tentativa de assinatura
+    // 5. Atualiza o banco com os dados da nova tentativa de assinatura
     await supabase.from('profiles').update({
       asaas_customer_id: customerId,
       plan_type: plano,
       subscription_id: subData.id,
-      ultima_invoice_url: invoiceUrl
+      ultima_invoice_url: invoiceUrl,
+      status_assinatura: 'inactive' // Forca inativo para previnir corrida de webhook do Asaas (Canceled)
     }).eq('id', userId);
 
     return res.status(200).json({ invoiceUrl, subscriptionId: subData.id });
