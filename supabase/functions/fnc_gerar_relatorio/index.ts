@@ -83,7 +83,7 @@ serve(async (req) => {
       generationConfig: {
         responseMimeType: "application/json",
         temperature: 0.1,
-        maxOutputTokens: 2048,
+        maxOutputTokens: 4096,
         responseSchema: {
           type: "object",
           properties: {
@@ -107,7 +107,13 @@ serve(async (req) => {
           },
           required: ["resumo_executivo", "analise_tendencia", "contradicoes"],
         }
-      }
+      },
+      safetySettings: [
+        { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+        { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+        { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
+        { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" }
+      ]
     };
 
     let genResult;
@@ -161,9 +167,22 @@ serve(async (req) => {
       }
     }
 
-    const resultText = genResult.candidates?.[0]?.content?.parts?.[0]?.text;
+    const candidate = genResult.candidates?.[0];
+    const finishReason = candidate?.finishReason;
+    const resultText = candidate?.content?.parts?.[0]?.text;
+    
+    console.log(`[fnc_gerar_relatorio] Finish Reason: ${finishReason}`);
+    console.log(`[fnc_gerar_relatorio] Resposta bruta do Gemini (primeiros 500 chars): ${resultText?.substring(0, 500)}`);
+    
     const cleanJson = resultText?.replace(/```json\n?|```/g, '').trim();
-    const resultJson = JSON.parse(cleanJson || "{}");
+    let resultJson;
+    try {
+      resultJson = JSON.parse(cleanJson || "{}");
+    } catch (parseError: any) {
+      console.error(`[fnc_gerar_relatorio] Falha ao parsear JSON. Erro: ${parseError.message}`);
+      console.error(`[fnc_gerar_relatorio] Texto que falhou (completo): ${cleanJson}`);
+      throw new Error(`Erro na formatação da resposta do Gemini: ${parseError.message}`);
+    }
 
     console.log(`[fnc_gerar_relatorio] Análise concluída. Salvando no banco... (Record: ${recordId})`);
     

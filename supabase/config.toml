@@ -411,7 +411,7 @@ entrypoint = "./functions/fnc_upload_gemini/index.ts"
 
 [functions.fnc_gerar_relatorio]
 enabled = true
-verify_jwt = true
+verify_jwt = false
 import_map = "./functions/fnc_gerar_relatorio/deno.json"
 # Uncomment to specify a custom file path to the entrypoint.
 # Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
