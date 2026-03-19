@@ -159,9 +159,10 @@ export const Dashboard: React.FC = () => {
       }, 5000); // 5 seconds interval
     };
 
-    if (analysisStatus === 'processando' || analysisStatus === 'processando_ia') {
+    if (analysisStatus === 'processando' || analysisStatus === 'processando_ia' || analysisStatus === 'arquivos_prontos') {
       startPolling();
     }
+
 
     return () => {
       if (pollInterval) clearInterval(pollInterval);
@@ -479,7 +480,7 @@ export const Dashboard: React.FC = () => {
                     <p className="text-gray-500 font-medium">Verificando status da análise...</p>
                   </div>
                 </div>
-              ) : analysisStatus === 'processando' || analysisStatus === 'processando_ia' ? (
+              ) : (analysisStatus === 'processando' || analysisStatus === 'processando_ia' || analysisStatus === 'arquivos_prontos') ? (
                 <div className="h-full min-h-[400px] flex flex-col items-center justify-center text-center bg-white/60 backdrop-blur-md rounded-[40px] border border-white shadow-sm p-12 relative overflow-hidden">
                   <div className="absolute top-0 right-0 w-64 h-64 bg-blue-500/5 rounded-full blur-3xl pointer-events-none" />
                   <div className="absolute bottom-0 left-0 w-64 h-64 bg-indigo-500/5 rounded-full blur-3xl pointer-events-none" />

@@ -146,6 +146,7 @@ serve(async (req) => {
   try {
     const bodyText = await req.text();
     const { processoId } = JSON.parse(bodyText);
+    console.log(`[fnc_upload_gemini] Chamada recebida para processoId: ${processoId}`);
 
     if (!processoId) {
       return new Response(JSON.stringify({ error: "processoId is required" }), { status: 400, headers: corsHeaders });
@@ -200,7 +201,7 @@ serve(async (req) => {
         });
       }
 
-      console.log("Criando Context Cache no Gemini...");
+      console.log("[fnc_upload_gemini] Criando Context Cache no Gemini...");
       const modelName = "models/gemini-2.5-flash";
       const cache = await createGeminiCache(cacheParts, modelName, SYSTEM_INSTRUCTION);
       console.log(`Cache criado: ${cache.name}`);

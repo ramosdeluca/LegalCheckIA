@@ -25,6 +25,7 @@ serve(async (req) => {
     
     // Suporte tanto para chamada direta do client quanto para Database Webhook
     const record = body.record || body;
+    console.log(`[fnc_gerar_relatorio] Webhook recebido! Status: ${record?.status}, ID: ${record?.id}`);
 
     if (!record || !record.id || !record.gemini_cache_name) {
       console.warn("Payload inválido ou sem gemini_cache_name:", body);
@@ -59,7 +60,7 @@ serve(async (req) => {
       return new Response(JSON.stringify({ error: "Assinatura inativa" }), { status: 403 });
     }
 
-    // Alterar o status para processando (apenas para consistência de UI, embora o frontend possa não depender disso agora)
+    // Alterar o status para processando
     await supabase.from('analises').update({ status: 'processando' }).eq('id', recordId);
 
     const modelName = "models/gemini-2.5-flash";
@@ -137,6 +138,7 @@ serve(async (req) => {
       gemini_cache_expiry: expiry 
     }).eq('id', recordId);
 
+    console.log(`[fnc_gerar_relatorio] FINALIZADO com sucesso para ${recordId}.`);
     return new Response(JSON.stringify({ success: true }), { headers: { 'Content-Type': 'application/json' }, status: 200 });
 
   } catch (error: any) {
