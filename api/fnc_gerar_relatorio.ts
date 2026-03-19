@@ -44,7 +44,7 @@ export default async function handler(req: any, res: any) {
     const userId = recordData.user_id;
 
     // 2. Chamada Gemini
-    const modelName = "models/gemini-1.5-flash"; // Vercel costuma ser mais estável com 1.5-flash
+    const modelName = "models/gemini-2.5-flash"; 
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/${modelName}:generateContent?key=${geminiApiKey}`;
     
     const generationBody = {
