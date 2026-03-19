@@ -85,19 +85,27 @@ export default async function handler(req: any, res: any) {
       generationConfig: { temperature: 0.0 }
     };
 
-    // --- Início Logica de Timeout de 290 segundos (Segurança Vercel de 300s) ---
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 290000); // 290 segundos
-
-    console.log(`[Vercel API] Chamando Gemini 1.5 PRO v1beta (via ${uris.length} URIs)...`);
-    const genResponse = await fetch(geminiUrl, {
+    // --- Logica de Timeout de 290 segundos (Promise.race) ---
+    const timeoutMsg = "O Gemini demorou muito para responder (Limite de 5 min atingido). Tente novamente com menos arquivos ou mídias mais curtas.";
+    
+    const geminiFetchPromise = fetch(geminiUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(generationBody),
-      signal: controller.signal as any // Node fetch supports signal
+      body: JSON.stringify(generationBody)
     });
 
-    clearTimeout(timeoutId);
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => {
+        const err = new Error(timeoutMsg);
+        err.name = 'AbortError'; // Usado para disparar o catch amigável
+        reject(err);
+      }, 290000); // 290 seg
+    });
+
+    console.log(`[Vercel API] Chamando Gemini 1.5 PRO v1beta (via ${uris.length} URIs)...`);
+    
+    // Promise.race para lidar com o timeout sem depender do AbortController no fetch (mais estável no Node/Vercel)
+    const genResponse = await Promise.race([geminiFetchPromise, timeoutPromise]) as Response;
     // --- Fim Logica de Timeout ---
 
     if (!genResponse.ok) {
