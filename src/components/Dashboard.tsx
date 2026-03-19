@@ -1,7 +1,8 @@
+// Dashboard Component
 import React, { useEffect, useState } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../AuthContext';
-import { Plus, Scale, FileText, Clock, ChevronRight, LogOut, User as UserIcon, Loader2, Search, Trash2, AlertTriangle as AlertIcon } from 'lucide-react';
+import { Plus, Scale, FileText, Clock, ChevronRight, LogOut, User as UserIcon, Loader2, Search, Trash2, AlertTriangle as AlertIcon, AlertCircle, CreditCard } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { UploadAnalysis } from './UploadAnalysis';
 import { AnalysisReport } from './AnalysisReport';
@@ -388,51 +389,68 @@ export const Dashboard: React.FC = () => {
           </div>
 
           <div className="space-y-3">
-            {filteredProcessos.map((p) => (
-              <motion.button
-                key={p.id}
-                whileHover={{ x: 6 }}
-                onClick={() => {
-                  if (activeProcesso?.id === p.id) {
-                    setAnalysisStatus(null);
-                  } else {
-                    setActiveProcesso(p);
-                  }
-                }}
-                className={`w-full text-left p-4 md:p-5 rounded-[20px] md:rounded-[24px] border transition-all duration-300 flex items-center justify-between group
-                  ${activeProcesso?.id === p.id
-                    ? 'bg-white border-[#5A5A40]/30 shadow-lg shadow-[#5A5A40]/5'
-                    : 'bg-white/40 backdrop-blur-sm border-transparent hover:bg-white/80 hover:border-black/5 hover:shadow-md'}`}
-              >
-                <div className="flex items-center gap-4">
-                  <div className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-colors
-                    ${activeProcesso?.id === p.id ? 'bg-[#5A5A40] text-white shadow-md' : 'bg-white/80 text-gray-400 group-hover:text-[#5A5A40] shadow-sm'}`}>
-                    <FileText size={20} />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="font-medium text-[#1a1a1a] truncate">{formatProcessNumber(p.numero_processo || '')}</p>
-                    <p className="text-xs text-gray-500 truncate">{p.cliente}</p>
-                  </div>
+            {profile?.status_assinatura === 'canceled' ? (
+              <div className="flex flex-col items-center justify-center py-20 bg-white rounded-3xl border border-red-100 shadow-sm text-center px-4 animate-in fade-in slide-in-from-bottom-4">
+                <div className="w-20 h-20 bg-red-50 rounded-full flex items-center justify-center text-red-500 mb-6 border border-red-100">
+                  <AlertCircle size={36} />
                 </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setProcessToDelete(p);
-                    }}
-                    className="p-2 text-gray-300 hover:text-red-500 transition-colors rounded-lg hover:bg-red-50"
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                  <ChevronRight size={18} className={activeProcesso?.id === p.id ? 'text-[#5A5A40]' : 'text-gray-300'} />
-                </div>
-              </motion.button>
-            ))}
-
-            {processos.length === 0 && (
+                <h2 className="text-2xl md:text-3xl font-serif text-[#1a1a1a] mb-4">Acesso Bloqueado</h2>
+                <p className="text-gray-500 max-w-lg mx-auto mb-8 text-lg">
+                  Sua assinatura na ExpertIA foi cancelada. Você não possui mais acesso para visualizar ou criar novas análises. Para restaurar seu acesso e histórico imediatamente, reative seu plano.
+                </p>
+                <button 
+                  onClick={() => setShowPaywall(true)}
+                  className="bg-[#5A5A40] text-white px-8 py-4 rounded-xl font-medium hover:bg-[#4a4a35] transition-all shadow-lg flex items-center gap-2 mx-auto justify-center"
+                >
+                  <CreditCard size={20} />
+                  Reativar Assinatura Agora
+                </button>
+              </div>
+            ) : processos.length === 0 && !loading ? (
               <div className="text-center py-12 bg-white/30 rounded-3xl border border-dashed border-gray-300">
                 <p className="text-sm text-gray-500">Nenhum processo cadastrado.</p>
               </div>
+            ) : (
+              filteredProcessos.map((p) => (
+                <motion.button
+                  key={p.id}
+                  whileHover={{ x: 6 }}
+                  onClick={() => {
+                    if (activeProcesso?.id === p.id) {
+                      setAnalysisStatus(null);
+                    } else {
+                      setActiveProcesso(p);
+                    }
+                  }}
+                  className={`w-full text-left p-4 md:p-5 rounded-[20px] md:rounded-[24px] border transition-all duration-300 flex items-center justify-between group
+                    ${activeProcesso?.id === p.id
+                      ? 'bg-white border-[#5A5A40]/30 shadow-lg shadow-[#5A5A40]/5'
+                      : 'bg-white/40 backdrop-blur-sm border-transparent hover:bg-white/80 hover:border-black/5 hover:shadow-md'}`}
+                >
+                  <div className="flex items-center gap-4">
+                    <div className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-colors
+                      ${activeProcesso?.id === p.id ? 'bg-[#5A5A40] text-white shadow-md' : 'bg-white/80 text-gray-400 group-hover:text-[#5A5A40] shadow-sm'}`}>
+                      <FileText size={20} />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="font-medium text-[#1a1a1a] truncate">{formatProcessNumber(p.numero_processo || '')}</p>
+                      <p className="text-xs text-gray-500 truncate">{p.cliente}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setProcessToDelete(p);
+                      }}
+                      className="p-2 text-gray-300 hover:text-red-500 transition-colors rounded-lg hover:bg-red-50"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                    <ChevronRight size={18} className={activeProcesso?.id === p.id ? 'text-[#5A5A40]' : 'text-gray-300'} />
+                  </div>
+                </motion.button>
+              ))
             )}
           </div>
         </div>

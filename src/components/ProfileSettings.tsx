@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
 import { useAuth } from '../AuthContext';
-import { User, Phone, FileText, Save, X, Loader2, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { User, Phone, FileText, Save, X, Loader2, AlertCircle, CheckCircle2, Trash2 } from 'lucide-react';
 import { motion } from 'motion/react';
 
 interface ProfileSettingsProps {
@@ -16,6 +16,10 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({ onClose }) => 
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [success, setSuccess] = useState(false);
+    
+    // Subscription Cancel states
+    const [isCanceling, setIsCanceling] = useState(false);
+    const [showCancelConfirm, setShowCancelConfirm] = useState(false);
 
     useEffect(() => {
         if (profile) {
@@ -157,6 +161,32 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({ onClose }) => 
         }
     };
 
+    const handleCancelSubscription = async () => {
+        setIsCanceling(true);
+        setError(null);
+        try {
+            const res = await fetch('/api/pagamentos/cancelar', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ userId: user?.id })
+            });
+            const data = await res.json();
+            
+            if (!res.ok) {
+                throw new Error(data.error || 'Erro ao cancelar assinatura. Tente novamente.');
+            }
+            
+            await refreshProfile();
+            setSuccess(true);
+            setShowCancelConfirm(false);
+        } catch (err: any) {
+            console.error('Cancel error:', err);
+            setError(err.message);
+        } finally {
+            setIsCanceling(false);
+        }
+    };
+
     return (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
             <motion.div
@@ -247,7 +277,65 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({ onClose }) => 
                         </div>
                     </div>
 
-                    <div className="flex gap-3 pt-4">
+                    {/* Subscription Status Section */}
+                    <div className="p-5 bg-gray-50 border border-black/5 rounded-2xl space-y-4">
+                        <div className="flex items-center justify-between">
+                            <div>
+                                <h3 className="text-sm font-bold text-[#1a1a1a] uppercase tracking-wider mb-1">Status da Assinatura</h3>
+                                <div className="flex items-center gap-2">
+                                    <div className={`w-2 h-2 rounded-full ${profile?.status_assinatura === 'active' ? 'bg-green-500' : profile?.status_assinatura === 'canceled' ? 'bg-red-500' : 'bg-yellow-500'}`} />
+                                    <span className="text-sm text-gray-600 capitalize">
+                                        {profile?.status_assinatura === 'active' ? 'Ativa' : profile?.status_assinatura === 'canceled' ? 'Cancelada' : profile?.status_assinatura || 'Sem Plano'}
+                                    </span>
+                                </div>
+                            </div>
+                            {profile?.plan_type && (
+                                <div className="text-right">
+                                    <span className="text-xs text-gray-400 font-bold uppercase tracking-widest block mb-1">Plano Atual</span>
+                                    <span className="text-[#5A5A40] font-medium capitalize">{profile.plan_type}</span>
+                                </div>
+                            )}
+                        </div>
+
+                        {profile?.status_assinatura === 'active' && !showCancelConfirm && (
+                            <button
+                                type="button"
+                                onClick={() => setShowCancelConfirm(true)}
+                                className="w-full mt-2 py-3 rounded-xl font-medium text-red-500 bg-red-50 hover:bg-red-100 transition-all text-sm flex items-center justify-center gap-2"
+                            >
+                                <Trash2 size={16} />
+                                Cancelar Assinatura
+                            </button>
+                        )}
+
+                        {showCancelConfirm && (
+                            <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-xl space-y-4 animate-in fade-in zoom-in-95">
+                                <h4 className="font-bold text-red-700 text-sm">Atenção: Ação Irreversível</h4>
+                                <p className="text-sm text-red-600/90 leading-relaxed">
+                                    Tem certeza que deseja cancelar sua assinatura? O cancelamento é imediato e você <strong>perderá todo o acesso visual aos seus processos, dados e análises</strong>.
+                                </p>
+                                <div className="flex gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowCancelConfirm(false)}
+                                        className="flex-1 py-2.5 bg-white text-gray-600 border border-gray-200 rounded-lg text-sm font-medium hover:bg-gray-50"
+                                    >
+                                        Voltar
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={handleCancelSubscription}
+                                        disabled={isCanceling}
+                                        className="flex-1 py-2.5 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 flex items-center justify-center gap-2 disabled:opacity-50"
+                                    >
+                                        {isCanceling ? <Loader2 className="animate-spin" size={16} /> : 'Sim, Cancelar'}
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="flex gap-3 pt-4 border-t border-black/5">
                         <button
                             type="button"
                             onClick={onClose}
