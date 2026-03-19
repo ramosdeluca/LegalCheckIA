@@ -43,13 +43,20 @@ export default async function handler(req: any, res: any) {
     // 1. Carregar Dados
     const { data: recordData, error: fetchErr } = await supabase
       .from('analises')
-      .select('user_id, gemini_file_uris')
+      .select('user_id, gemini_file_uris, profiles(credits)')
       .eq('id', recordId)
       .single();
       
     if (fetchErr || !recordData?.user_id) throw new Error("Usuário não encontrado.");
+    
     const userId = recordData.user_id;
+    // @ts-ignore - Estutura do join do supabase
+    const currentCredits = recordData.profiles?.credits || 0;
     const uris = recordData.gemini_file_uris || [];
+
+    if (currentCredits <= 0) {
+      throw new Error("Saldo insuficiente de créditos.");
+    }
 
     if (!uris.length) throw new Error("URIs dos arquivos não encontradas no banco.");
 
@@ -95,9 +102,12 @@ export default async function handler(req: any, res: any) {
       gemini_cache_expiry: expiry 
     }).eq('id', recordId);
 
-    await supabase.rpc('deduct_credit', { user_id: userId });
+    // Decrementar crédito manualmente (já que o RPC pode estar falhando ou ausente)
+    await supabase.from('profiles').update({ 
+      credits: Math.max(0, currentCredits - 1) 
+    }).eq('id', userId);
     
-    console.log(`[Vercel API] Sucesso final para ${recordId}`);
+    console.log(`[Vercel API] Sucesso final e crédito deduzido para ${recordId}`);
     return res.status(200).json({ success: true });
 
   } catch (error: any) {
