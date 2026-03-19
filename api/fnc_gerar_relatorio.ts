@@ -51,8 +51,8 @@ export default async function handler(req: any, res: any) {
 
     if (!uris.length) throw new Error("URIs dos arquivos não encontradas no banco.");
 
-    // 2. Chamada Gemini (2.0 Flash exp é grátis e MUITO faster)
-    const modelName = "models/gemini-2.0-flash-exp"; 
+    // 2. Chamada Gemini (1.5 Pro é estável e aguenta muitos arquivos)
+    const modelName = "models/gemini-1.5-pro"; 
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/${modelName}:generateContent?key=${geminiApiKey}`;
     
     // Preparar os componentes da mensagem
@@ -60,14 +60,15 @@ export default async function handler(req: any, res: any) {
       file_data: { file_uri: fileObj.uri, mime_type: fileObj.mime }
     }));
     
-    parts.push({ text: `TAREFA: Realize a análise jurídica objetiva dos arquivos fornecidos. \n\n${ANALYSIS_PROMPT}` });
-
     const generationBody = {
+      system_instruction: { 
+        parts: [{ text: `Realize a análise jurídica objetiva dos arquivos fornecidos. \n\n${ANALYSIS_PROMPT}` }] 
+      },
       contents: [{ role: "user", parts }],
       generationConfig: { temperature: 0.0 }
     };
 
-    console.log(`[Vercel API] Chamando Gemini v1 (via ${uris.length} URIs)...`);
+    console.log(`[Vercel API] Chamando Gemini 1.5 PRO v1beta (via ${uris.length} URIs)...`);
     const genResponse = await fetch(geminiUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
