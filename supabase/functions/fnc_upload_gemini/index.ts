@@ -176,50 +176,48 @@ serve(async (req) => {
     }
 
     const googleFiles: any[] = [];
+    const geminiFileUris: string[] = [];
     const cacheParts: any[] = [];
 
-    try {
-      console.log(`Processando ${videoUrls.length} mídias e ${pdfUrls.length} PDFs...`);
-      
-      const fileTasks = [
-        ...videoUrls.map(url => ({ url, type: 'video' })),
-        ...pdfUrls.map((url: string) => ({ url, type: 'pdf' }))
-      ];
+    console.log(`Processando ${videoUrls.length} mídias e ${pdfUrls.length} PDFs...`);
+    
+    const fileTasks = [
+      ...videoUrls.map(url => ({ url, type: 'video' })),
+      ...pdfUrls.map((url: string) => ({ url, type: 'pdf' }))
+    ];
 
-      for (const task of fileTasks) {
-        const path = task.url.split('/storage/v1/object/public/legalcheck/')[1];
-        const { data: { publicUrl } } = supabase.storage.from('legalcheck').getPublicUrl(path);
+    for (const task of fileTasks) {
+      const path = task.url.split('/storage/v1/object/public/legalcheck/')[1];
+      const { data: { publicUrl } } = supabase.storage.from('legalcheck').getPublicUrl(path);
 
-        const file = await uploadToGemini(publicUrl, path);
-        googleFiles.push(file);
-        
-        cacheParts.push({ 
-          text: `${task.type === 'video' ? 'Arquivo de Áudio/Vídeo' : 'Documento Processual PDF'}: ${path}` 
-        });
-        cacheParts.push({
-          file_data: { file_uri: file.uri, mime_type: file.mimeType }
-        });
-      }
-
-      console.log("[fnc_upload_gemini] Criando Context Cache no Gemini...");
-      const modelName = "models/gemini-2.5-flash";
-      const cache = await createGeminiCache(cacheParts, modelName, SYSTEM_INSTRUCTION);
-      console.log(`Cache criado: ${cache.name}`);
-
-      console.log("Sucesso! Salvando cache_name no banco e atualizando status para arquivos_prontos...");
-      await supabase.from('analises').update({
-        status: 'arquivos_prontos',
-        gemini_cache_name: cache.name
-      }).eq('id', currentAnaliseId);
-
-    } finally {
-      console.log("Limpando arquivos temporários do Google (o cache persistirá)...");
-      for (const file of googleFiles) {
-        await deleteGeminiFile(file.name).catch(() => {});
-      }
+      const file = await uploadToGemini(publicUrl, path);
+      googleFiles.push(file);
+      geminiFileUris.push(file.uri);
     }
 
-    return new Response(JSON.stringify({ success: true }), { headers: corsHeaders, status: 200 });
+    console.log("[fnc_upload_gemini] Arquivos processados. Salvando URIs no banco...");
+    
+    // Salvando os links seguros (URIs) no banco para a função de relatório usar
+    const { error: updateErr } = await supabase
+      .from('analises')
+      .update({ 
+        gemini_file_uris: geminiFileUris,
+        status: 'arquivos_prontos' 
+      })
+      .eq('id', currentAnaliseId);
+
+    if (updateErr) throw updateErr;
+
+    return new Response(JSON.stringify({ 
+      success: true,
+      files: geminiFileUris.length
+    }), { 
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' }, 
+      status: 200 
+    });
+
+    // NOTA: Os arquivos permanecem no Gemini para a próxima função poder acessá-los.
+    // O Gemini os deleta automaticamente após 2 dias por padrão nos uploads temporários.
 
   } catch (error: any) {
     console.error("ERRO CRÍTICO no upload:", error.message);

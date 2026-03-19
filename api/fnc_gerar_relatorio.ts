@@ -30,8 +30,8 @@ export default async function handler(req: any, res: any) {
 
   console.log(`[Vercel API] Acionado para ID: ${record?.id}`);
 
-  if (record?.status !== 'arquivos_prontos' || !record?.gemini_cache_name) {
-    return res.status(200).json({ message: "Ignorado ou sem cache" });
+  if (record?.status !== 'arquivos_prontos' || !record?.gemini_file_uris) {
+    return res.status(200).json({ message: "Ignorado ou sem arquivos" });
   }
 
   const recordId = record.id;
@@ -39,21 +39,35 @@ export default async function handler(req: any, res: any) {
 
   try {
     // 1. Carregar Dados
-    const { data: recordData, error: fetchErr } = await supabase.from('analises').select('user_id').eq('id', recordId).single();
+    const { data: recordData, error: fetchErr } = await supabase
+      .from('analises')
+      .select('user_id, gemini_file_uris')
+      .eq('id', recordId)
+      .single();
+      
     if (fetchErr || !recordData?.user_id) throw new Error("Usuário não encontrado.");
     const userId = recordData.user_id;
+    const uris = recordData.gemini_file_uris || [];
 
-    // 2. Chamada Gemini
-    const modelName = "models/gemini-2.5-flash"; 
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/${modelName}:generateContent?key=${geminiApiKey}`;
+    if (!uris.length) throw new Error("URIs dos arquivos não encontradas no banco.");
+
+    // 2. Chamada Gemini (v1 estável)
+    const modelName = "models/gemini-1.5-flash"; 
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1/${modelName}:generateContent?key=${geminiApiKey}`;
     
+    // Preparar os componentes da mensagem
+    const parts = uris.map((uri: string) => ({
+      file_data: { file_uri: uri, mime_type: uri.endsWith('.pdf') ? 'application/pdf' : 'video/mp4' } // Mime-type aproximado
+    }));
+    
+    parts.push({ text: `TAREFA: Realize a análise jurídica objetiva dos arquivos fornecidos. \n\n${ANALYSIS_PROMPT}` });
+
     const generationBody = {
-      cachedContent: cacheName,
-      contents: [{ role: "user", parts: [{ text: `TAREFA: Realize a análise jurídica objetiva dos arquivos em cache. \n\n${ANALYSIS_PROMPT}` }] }],
+      contents: [{ role: "user", parts }],
       generationConfig: { temperature: 0.0 }
     };
 
-    console.log(`[Vercel API] Chamando Gemini...`);
+    console.log(`[Vercel API] Chamando Gemini v1 (via ${uris.length} URIs)...`);
     const genResponse = await fetch(geminiUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
