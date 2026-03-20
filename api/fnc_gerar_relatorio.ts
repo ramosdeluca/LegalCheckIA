@@ -24,35 +24,47 @@ export default async function handler(req: any, res: any) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
   if (req.method === 'OPTIONS') return res.status(200).end();
-  if (req.method !== 'POST') return res.status(405).send('Method Not Allowed');
-
+  
   const supabase = createClient(supabaseUrl, supabaseServiceKey);
-  const body = req.body || {};
-  const record = body.record || body;
 
-  console.log(`[Vercel API] Acionado para ID: ${record?.id}`);
+  // --- LOGICA DE WORKER: Capturar 1 Job da Fila ---
+  const { data: jobData, error: dequeueErr } = await supabase.rpc('dequeue_analysis_job').maybeSingle();
+  const job = jobData as any;
 
-  if (record?.status !== 'arquivos_prontos' || !record?.gemini_file_uris) {
-    return res.status(200).json({ message: "Ignorado ou sem arquivos" });
+  if (dequeueErr) {
+    console.error("[Worker] Erro ao capturar job:", dequeueErr.message);
+    return res.status(500).json({ error: dequeueErr.message });
   }
 
-  const recordId = record.id;
-  const cacheName = record.gemini_cache_name;
+  if (!job) {
+    console.log("[Worker] Nenhum job pendente na fila.");
+    return res.status(200).json({ message: "No jobs to process" });
+  }
+
+  const processId = job.process_id;
+  const jobId = job.id;
+  console.log(`[Worker] Iniciando processamento do Job ${jobId} para Processo ${processId}`);
 
   try {
-    // 1. Carregar Dados da Análise
-    const { data: recordData, error: fetchErr } = await supabase
+    // 1. Localizar a análise correspondente que está pronta para processar
+    const { data: analise, error: analiseErr } = await supabase
       .from('analises')
-      .select('user_id, gemini_file_uris')
-      .eq('id', recordId)
-      .single();
-      
-    if (fetchErr || !recordData) throw new Error(`Análise ${recordId} não encontrada.`);
-    
-    const userId = recordData.user_id;
-    const uris = recordData.gemini_file_uris || [];
+      .select('id, user_id, gemini_file_uris')
+      .eq('processo_id', processId)
+      .eq('status', 'arquivos_prontos')
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
 
-    // 2. Carregar Créditos do Perfil (separado para evitar erro de join)
+    if (analiseErr || !analise) {
+       throw new Error(`Nenhuma análise com status 'arquivos_prontos' para o processo ${processId}`);
+    }
+
+    const userId = analise.user_id;
+    const uris = analise.gemini_file_uris || [];
+    const recordId = analise.id;
+
+    // 2. Carregar Créditos do Perfil
     const { data: profileData, error: profileErr } = await supabase
       .from('profiles')
       .select('credits')
@@ -68,11 +80,10 @@ export default async function handler(req: any, res: any) {
 
     if (!uris.length) throw new Error("URIs dos arquivos não encontradas no banco.");
 
-    // 2. Chamada Gemini (CONFIRMADO: gemini-2.5-pro existe nesta chave)
+    // 3. Chamada Gemini
     const modelName = "models/gemini-2.5-pro"; 
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/${modelName}:generateContent?key=${geminiApiKey}`;
     
-    // Preparar os componentes da mensagem
     const parts = uris.map((fileObj: any) => ({
       file_data: { file_uri: fileObj.uri, mime_type: fileObj.mime }
     }));
@@ -85,9 +96,7 @@ export default async function handler(req: any, res: any) {
       generationConfig: { temperature: 0.0 }
     };
 
-    // --- Logica de Timeout de 290 segundos (Promise.race) ---
-    const timeoutMsg = "O Gemini demorou muito para responder (Limite de 5 min atingido). Tente novamente com menos arquivos ou mídias mais curtas.";
-    
+    const timeoutMsg = "O Gemini demorou muito para responder (Limite de 5 min atingido).";
     const geminiFetchPromise = fetch(geminiUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -97,16 +106,13 @@ export default async function handler(req: any, res: any) {
     const timeoutPromise = new Promise((_, reject) => {
       setTimeout(() => {
         const err = new Error(timeoutMsg);
-        err.name = 'AbortError'; // Usado para disparar o catch amigável
+        err.name = 'AbortError';
         reject(err);
-      }, 290000); // 290 seg
+      }, 285000); // 285 seg (folga para o Vercel)
     });
 
-    console.log(`[Vercel API] Chamando Gemini 1.5 PRO v1beta (via ${uris.length} URIs)...`);
-    
-    // Promise.race para lidar com o timeout sem depender do AbortController no fetch (mais estável no Node/Vercel)
+    console.log(`[Worker] Chamando Gemini para ${recordId}...`);
     const genResponse = await Promise.race([geminiFetchPromise, timeoutPromise]) as Response;
-    // --- Fim Logica de Timeout ---
 
     if (!genResponse.ok) {
       const errText = await genResponse.text();
@@ -118,7 +124,7 @@ export default async function handler(req: any, res: any) {
     const cleanJson = resultText?.replace(/```json\n?|```/g, '').trim();
     const resultJson = JSON.parse(cleanJson || "{}");
 
-    // 3. Sucesso - Update no Banco
+    // 4. Sucesso - Update no Banco (Analises e Profiles)
     const expiry = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
     await supabase.from('analises').update({
       resultado_json: resultJson,
@@ -126,28 +132,41 @@ export default async function handler(req: any, res: any) {
       gemini_cache_expiry: expiry 
     }).eq('id', recordId);
 
-    // Decrementar crédito manualmente (já que o RPC pode estar falhando ou ausente)
     await supabase.from('profiles').update({ 
       credits: Math.max(0, currentCredits - 1) 
     }).eq('id', userId);
+
+    // 5. Finalizar Job com Sucesso
+    await supabase.from('analysis_jobs').update({
+      status: 'done',
+      finished_at: new Date().toISOString()
+    }).eq('id', jobId);
     
-    console.log(`[Vercel API] Sucesso final e crédito deduzido para ${recordId}`);
-    return res.status(200).json({ success: true });
+    console.log(`[Worker] Job ${jobId} concluído com sucesso.`);
+    return res.status(200).json({ success: true, jobId });
 
   } catch (error: any) {
-    console.error(`[Vercel API] Erro:`, error.message);
+    console.error(`[Worker Error] Job ${jobId}:`, error.message);
     
     let finalMessage = error.message;
     if (error.name === 'AbortError') {
-      finalMessage = "O Gemini demorou muito para responder (Limite de 5 min atingido). Tente novamente com menos arquivos ou mídias mais curtas.";
+      finalMessage = "Timeout Gemini excedido.";
     }
 
-    if (recordId) {
-      await supabase.from('analises').update({
-        status: 'erro',
-        resultado_json: { erro: finalMessage }
-      }).eq('id', recordId);
-    }
-    return res.status(500).json({ error: finalMessage });
+    // Registrar erro no Job (tentativas etc)
+    await supabase.from('analysis_jobs').update({
+      status: 'failed',
+      attempts: (job.attempts || 0) + 1,
+      error_message: finalMessage,
+      finished_at: new Date().toISOString()
+    }).eq('id', jobId);
+
+    // Também atualizar a tabela analises para que o UI saiba do erro imediato
+    await supabase.from('analises').update({
+      status: 'erro',
+      resultado_json: { erro: finalMessage }
+    }).filter('processo_id', 'eq', processId).filter('status', 'eq', 'arquivos_prontos');
+
+    return res.status(500).json({ error: finalMessage, jobId });
   }
 }

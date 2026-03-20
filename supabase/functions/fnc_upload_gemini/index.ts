@@ -212,6 +212,15 @@ serve(async (req) => {
 
     if (updateErr) throw updateErr;
 
+    // --- NOVA LÓGICA DE FILA: Criar o Job para processamento assíncrono ---
+    console.log(`[fnc_upload_gemini] Inserindo Job na fila para o processo: ${processoId}`);
+    await supabase.from('analysis_jobs').insert({
+      process_id: processoId,
+      user_id: analiseData.user_id,
+      status: 'pending'
+    });
+    // --- FIM LÓGICA DE FILA ---
+
     return new Response(JSON.stringify({ 
       success: true,
       files: geminiFileData.length

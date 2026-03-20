@@ -3,5 +3,12 @@
     "api/fnc_gerar_relatorio.ts": {
       "maxDuration": 300
     }
-  }
+  },
+  "crons": [
+    { "path": "/api/fnc_gerar_relatorio?worker=1", "schedule": "* * * * *" },
+    { "path": "/api/fnc_gerar_relatorio?worker=2", "schedule": "* * * * *" },
+    { "path": "/api/fnc_gerar_relatorio?worker=3", "schedule": "* * * * *" },
+    { "path": "/api/fnc_gerar_relatorio?worker=4", "schedule": "* * * * *" },
+    { "path": "/api/fnc_gerar_relatorio?worker=5", "schedule": "* * * * *" }
+  ]
 }
