@@ -45,24 +45,27 @@ export default async function handler(req: any, res: any) {
 
     // 3. Chamar Asaas para atualização
     const asaasResp = await fetch(`${ASAAS_URL}/subscriptions/${profile.subscription_id}`, {
-      method: 'PUT', // PUT para atualizar campos de assinatura no Asaas
+      method: 'PUT',
       headers: { 
         'access_token': ASAAS_API_KEY || '',
         'Content-Type': 'application/json' 
       },
       body: JSON.stringify({
         value: valor,
-        description: desc
-        // Nota: O Asaas recalcula o valor da próxima fatura baseado na prorrata se configurado,
-        // mas aqui estamos apenas mudando o valor da recorrência futura.
+        description: desc,
+        updatePendingPayments: true // Importante para atualizar faturas em aberto
       })
     });
 
     const asaasData = await asaasResp.json();
 
     if (!asaasResp.ok) {
-      console.error("Asaas update error:", asaasData);
-      return res.status(400).json({ error: 'Erro ao atualizar assinatura no Asaas', details: asaasData });
+      console.error("Asaas update error:", JSON.stringify(asaasData, null, 2));
+      const firstError = asaasData.errors?.[0]?.description || 'Erro no Asaas';
+      return res.status(400).json({ 
+        error: `Erro Asaas: ${firstError}`, 
+        details: asaasData 
+      });
     }
 
     // 4. Atualizar Supabase
