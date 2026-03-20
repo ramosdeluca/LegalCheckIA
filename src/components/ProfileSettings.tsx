@@ -17,8 +17,9 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({ onClose }) => 
     const [error, setError] = useState<string | null>(null);
     const [success, setSuccess] = useState(false);
     
-    // Subscription Cancel states
+    // Subscription Cancel/Change states
     const [isCanceling, setIsCanceling] = useState(false);
+    const [isChangingPlan, setIsChangingPlan] = useState(false);
     const [showCancelConfirm, setShowCancelConfirm] = useState(false);
 
     useEffect(() => {
@@ -187,8 +188,37 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({ onClose }) => 
         }
     };
 
+    const handlePlanChange = async (novoPlano: 'basico' | 'profissional') => {
+        const text = novoPlano === 'profissional' ? 'Upgrade para Profissional (20 créditos)' : 'Downgrade para Básico (5 créditos)';
+        if (!window.confirm(`Tem certeza que deseja realizar o ${text}? Seu valor de assinatura no Asaas será atualizado.`)) return;
+        
+        setIsChangingPlan(true);
+        setError(null);
+        try {
+            const res = await fetch('/api/pagamentos/alterar-plano', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ userId: user?.id, novoPlano })
+            });
+            const data = await res.json();
+            
+            if (!res.ok) {
+                throw new Error(data.error || 'Erro ao alterar plano. Tente novamente.');
+            }
+            
+            await refreshProfile();
+            setSuccess(true);
+        } catch (err: any) {
+            console.error('Plan change error:', err);
+            setError(err.message);
+        } finally {
+            setIsChangingPlan(false);
+        }
+    };
+
     return (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+// ... (rest of the file remains similar until section)
             <motion.div
                 initial={{ opacity: 0, scale: 0.95, y: 20 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -292,18 +322,46 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({ onClose }) => 
                             {profile?.plan_type && (
                                 <div className="text-right">
                                     <span className="text-xs text-gray-400 font-bold uppercase tracking-widest block mb-1">Plano Atual</span>
-                                    <span className="text-[#5A5A40] font-medium capitalize">{profile.plan_type}</span>
+                                    <span className="text-[#5A5A40] font-medium capitalize prose-sm">{profile.plan_type}</span>
                                 </div>
                             )}
                         </div>
+
+                        {/* Botoes de Mudanca de Plano (Upgrade/Downgrade) */}
+                        {profile?.status_assinatura === 'active' && !showCancelConfirm && (
+                            <div className="grid grid-cols-1 gap-2 mt-2">
+                                {profile.plan_type === 'basico' && (
+                                    <button
+                                        type="button"
+                                        disabled={isChangingPlan}
+                                        onClick={() => handlePlanChange('profissional')}
+                                        className="w-full py-3 rounded-xl font-bold text-white bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 shadow-md transition-all text-xs uppercase tracking-wider flex items-center justify-center gap-2 disabled:opacity-50"
+                                    >
+                                        {isChangingPlan ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+                                        Mudar para Profissional (Upgrade)
+                                    </button>
+                                )}
+                                {profile.plan_type === 'profissional' && (
+                                    <button
+                                        type="button"
+                                        disabled={isChangingPlan}
+                                        onClick={() => handlePlanChange('basico')}
+                                        className="w-full py-3 rounded-xl font-bold text-blue-600 border border-blue-200 bg-blue-50 hover:bg-blue-100 transition-all text-xs uppercase tracking-wider flex items-center justify-center gap-2 disabled:opacity-50"
+                                    >
+                                        {isChangingPlan ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
+                                        Mudar para Básico (Downgrade)
+                                    </button>
+                                )}
+                            </div>
+                        )}
 
                         {profile?.status_assinatura === 'active' && !showCancelConfirm && (
                             <button
                                 type="button"
                                 onClick={() => setShowCancelConfirm(true)}
-                                className="w-full mt-2 py-3 rounded-xl font-medium text-red-500 bg-red-50 hover:bg-red-100 transition-all text-sm flex items-center justify-center gap-2"
+                                className="w-full mt-1 py-3 rounded-xl font-medium text-red-400 hover:text-red-600 transition-all text-[10px] uppercase tracking-widest flex items-center justify-center gap-2"
                             >
-                                <Trash2 size={16} />
+                                <Trash2 size={14} />
                                 Cancelar Assinatura
                             </button>
                         )}
