@@ -55,6 +55,12 @@ serve(async (req) => {
         cachedContent: cacheName,
         contents: [{ role: "user", parts: [{ text: `TAREFA: Realize a análise jurídica objetiva dos arquivos em cache. \n\n${ANALYSIS_PROMPT}` }] }],
         generationConfig: { temperature: 0.0 },
+        safetySettings: [
+          { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+          { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+          { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
+          { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" }
+        ],
       };
 
       const controller = new AbortController();

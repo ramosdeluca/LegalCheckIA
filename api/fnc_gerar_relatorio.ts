@@ -93,7 +93,13 @@ export default async function handler(req: any, res: any) {
         parts: [{ text: `Realize a análise jurídica objetiva dos arquivos fornecidos. \n\n${ANALYSIS_PROMPT}` }] 
       },
       contents: [{ role: "user", parts }],
-      generationConfig: { temperature: 0.0 }
+      generationConfig: { temperature: 0.0 },
+      safetySettings: [
+        { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+        { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+        { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
+        { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" }
+      ]
     };
 
     const timeoutMsg = "O Gemini demorou muito para responder (Limite de 5 min atingido).";
