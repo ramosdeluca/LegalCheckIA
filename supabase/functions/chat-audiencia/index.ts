@@ -24,15 +24,20 @@ serve(async (req) => {
       return new Response(JSON.stringify({ error: "analiseId and message are required" }), { status: 400, headers: corsHeaders });
     }
 
-    // 1. Recuperar os links seguros (URIs) do Gemini
+    // 1. Recuperar os links seguros (URIs) do Gemini, Status e Créditos
     const { data: analise, error: analiseError } = await supabase
       .from('analises')
-      .select('gemini_file_uris, status')
+      .select('gemini_file_uris, status, chat_credits')
       .eq('id', analiseId)
       .single();
     
     if (analiseError || !analise) {
       throw new Error("Análise não encontrada.");
+    }
+
+    // Verificar se ainda tem créditos de chat
+    if (analise.chat_credits !== null && analise.chat_credits <= 0) {
+      throw new Error("Limite de mensagens atingido para esta análise.");
     }
 
     const uris = analise.gemini_file_uris || [];
@@ -110,11 +115,16 @@ INSTRUÇÃO DE RESPOSTA:
       throw new Error(`Gemini não retornou texto. Motivo provável: ${result.candidates?.[0]?.finishReason || "Desconhecido"}`);
     }
 
-    // 3. Salvar Histórico Permanentemente
+    // 3. Salvar Histórico e Decrementar Crédito
     const { data: insertedData, error: insertError } = await supabase.from('analise_chats').insert([
       { analise_id: analiseId, processo_id: processoId, role: 'user', content: message },
       { analise_id: analiseId, processo_id: processoId, role: 'assistant', content: aiResponse }
     ]).select('id, role');
+
+    // Decrementar crédito de chat na tabela analises
+    await supabase.from('analises').update({
+      chat_credits: Math.max(0, (analise.chat_credits || 0) - 1)
+    }).eq('id', analiseId);
 
     if (insertError) {
       console.error("Erro ao salvar no banco:", insertError);

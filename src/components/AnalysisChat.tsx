@@ -24,29 +24,42 @@ export const AnalysisChat: React.FC<AnalysisChatProps> = ({ analiseId, processoI
   const [isLoading, setIsLoading] = useState(false);
   const [isFetchingHistory, setIsFetchingHistory] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [chatCredits, setChatCredits] = useState<number | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const isExpired = cacheExpiry ? new Date(cacheExpiry) < new Date() : true;
+  const hasNoCredits = chatCredits !== null && chatCredits <= 0;
 
-  const fetchHistory = async () => {
+  const fetchHistoryAndCredits = async () => {
     try {
-      const { data, error } = await supabase
+      // Buscar histórico
+      const { data: histData, error: histError } = await supabase
         .from('analise_chats')
         .select('*')
         .eq('analise_id', analiseId)
         .order('created_at', { ascending: true });
 
-      if (error) throw error;
-      setMessages(data || []);
+      if (histError) throw histError;
+      setMessages(histData || []);
+
+      // Buscar créditos
+      const { data: analiseData, error: analiseErr } = await supabase
+        .from('analises')
+        .select('chat_credits')
+        .eq('id', analiseId)
+        .single();
+      
+      if (!analiseErr) setChatCredits(analiseData.chat_credits);
+
     } catch (err: any) {
-      console.error('Erro ao carregar histórico do chat:', err.message);
+      console.error('Erro ao carregar dados do chat:', err.message);
     } finally {
       setIsFetchingHistory(false);
     }
   };
 
   useEffect(() => {
-    fetchHistory();
+    fetchHistoryAndCredits();
   }, [analiseId]);
 
   useEffect(() => {
@@ -57,7 +70,7 @@ export const AnalysisChat: React.FC<AnalysisChatProps> = ({ analiseId, processoI
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newMessage.trim() || isLoading || isExpired) return;
+    if (!newMessage.trim() || isLoading || isExpired || hasNoCredits) return;
 
     const userMsg = newMessage;
     setNewMessage('');
@@ -80,7 +93,10 @@ export const AnalysisChat: React.FC<AnalysisChatProps> = ({ analiseId, processoI
       if (funcError) throw funcError;
       const result = data;
 
-      // Adicionar resposta da IA e ATUALIZAR ID da mensagem do usuário para o UUID real
+      // Decrementar crédito localmente para feedback instantâneo
+      setChatCredits(prev => (prev !== null ? Math.max(0, prev - 1) : null));
+
+      // Adicionar resposta da IA
       setMessages(prev => {
         const withoutTemp = prev.filter(m => m.id !== tempId);
         return [...withoutTemp, 
@@ -101,37 +117,21 @@ export const AnalysisChat: React.FC<AnalysisChatProps> = ({ analiseId, processoI
 
     } catch (err: any) {
       setError(err.message);
-      // Remover a mensagem otimista em caso de erro grave (opcional)
     } finally {
       setIsLoading(false);
     }
   };
-
+// ... (rest of the component logic for delete stays similar)
   const handleDeleteMessage = async (msgId: string, role: 'user' | 'assistant') => {
     try {
-      // Identificar o par para exclusão
       const index = messages.findIndex(m => m.id === msgId);
       if (index === -1) return;
-
       let pairIds: string[] = [msgId];
-      
-      // Se for usuário, deletar a próxima (resposta)
-      if (role === 'user' && messages[index + 1]?.role === 'assistant') {
-        pairIds.push(messages[index + 1].id);
-      } 
-      // Se for assistente, deletar a anterior (pergunta)
-      else if (role === 'assistant' && messages[index - 1]?.role === 'user') {
-        pairIds.push(messages[index - 1].id);
-      }
+      if (role === 'user' && messages[index + 1]?.role === 'assistant') pairIds.push(messages[index + 1].id);
+      else if (role === 'assistant' && messages[index - 1]?.role === 'user') pairIds.push(messages[index - 1].id);
 
-      const { error } = await supabase
-        .from('analise_chats')
-        .delete()
-        .in('id', pairIds);
-
+      const { error } = await supabase.from('analise_chats').delete().in('id', pairIds);
       if (error) throw error;
-
-      // Atualizar estado local
       setMessages(prev => prev.filter(m => !pairIds.includes(m.id)));
     } catch (err: any) {
       console.error('Erro ao deletar mensagem:', err.message);
@@ -162,12 +162,22 @@ export const AnalysisChat: React.FC<AnalysisChatProps> = ({ analiseId, processoI
           </div>
         </div>
         
-        {!isExpired && (
-          <div className="flex items-center gap-2 px-3 py-1 bg-green-50 text-green-600 rounded-full text-[10px] font-bold uppercase tracking-wider border border-green-100">
-            <div className="w-1.5 h-1.5 bg-green-500 rounded-full animate-pulse" />
-            Sessão Ativa
-          </div>
-        )}
+        <div className="flex flex-col items-end gap-1">
+          {!isExpired && chatCredits !== null && (
+            <div className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider border shadow-sm flex items-center gap-1.5
+              ${chatCredits > 0 ? 'bg-blue-50 text-blue-600 border-blue-100' : 'bg-orange-50 text-orange-600 border-orange-100'}`}>
+              <Send size={10} />
+              {chatCredits} {chatCredits === 1 ? 'crédito' : 'créditos'} de chat
+            </div>
+          )}
+          {!isExpired && (
+            <div className={`flex items-center gap-2 px-3 py-1 text-[10px] font-bold uppercase tracking-wider rounded-full border
+              ${hasNoCredits ? 'bg-orange-50 text-orange-600 border-orange-100' : 'bg-green-50 text-green-600 border-green-100'}`}>
+              <div className={`w-1.5 h-1.5 rounded-full ${hasNoCredits ? 'bg-orange-500' : 'bg-green-500 animate-pulse'}`} />
+              {hasNoCredits ? 'Limite Atingido' : 'Sessão Ativa'}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Messages */}
@@ -250,6 +260,11 @@ export const AnalysisChat: React.FC<AnalysisChatProps> = ({ analiseId, processoI
           <div className="flex items-center justify-center gap-2 py-3 bg-gray-50 rounded-2xl border border-gray-200 text-gray-400 text-xs font-medium">
             <Clock size={14} />
             Sessão expirada (48h). O histórico foi salvo para consulta.
+          </div>
+        ) : hasNoCredits ? (
+          <div className="flex items-center justify-center gap-2 py-4 bg-orange-50 rounded-2xl border border-orange-100 text-orange-600 text-xs font-bold uppercase tracking-wide">
+            <AlertCircle size={14} />
+            Limite de perguntas atingido para esta análise.
           </div>
         ) : (
           <form onSubmit={handleSendMessage} className="relative">

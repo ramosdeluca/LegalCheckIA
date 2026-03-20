@@ -200,12 +200,23 @@ serve(async (req) => {
     // Define expiração padrão de 48h (prazo dos arquivos no Gemini)
     const expiry = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
 
+    // --- LÓGICA DE CRÉDITOS DE CHAT: Definir limite por plano ---
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('plan_type')
+      .eq('id', analiseData.user_id)
+      .single();
+    
+    const chatLimit = profile?.plan_type === 'profissional' ? 12 : 4;
+    // --- FIM LÓGICA DE CRÉDITOS ---
+
     // Salvando os links seguros (URIs) no banco para a função de relatório usar
     const { error: updateErr } = await supabase
       .from('analises')
       .update({ 
         gemini_file_uris: geminiFileData,
         gemini_cache_expiry: expiry,
+        chat_credits: chatLimit, // Inicializa os créditos de chat
         status: 'arquivos_prontos' 
       })
       .eq('id', currentAnaliseId);
