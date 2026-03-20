@@ -38,13 +38,23 @@ export default async function handler(req: any, res: any) {
       return res.status(400).json({ error: `Você já está no plano ${novoPlano}` });
     }
 
-    // 1.5 Buscar detalhes da assinatura atual no Asaas para preservar o ciclo (vencimento)
+    // 1.5 Buscar detalhes da assinatura atual no Asaas
     const asaasGetResp = await fetch(`${ASAAS_URL}/subscriptions/${profile.subscription_id}`, {
       method: 'GET',
       headers: { 'access_token': ASAAS_API_KEY || '' }
     });
     const oldSub = await asaasGetResp.json();
-    const nextDueDate = oldSub.nextDueDate || new Date(Date.now() + 86400000).toISOString().split('T')[0];
+    
+    // Forçamos o próximo vencimento para o dia 20 do próximo mês (Abril), para "consertar" o pulo do Asaas
+    const d = new Date();
+    // Se hoje for dia 20 ou mais, o próximo é no mês que vem
+    if (d.getDate() >= 20) {
+      d.setMonth(d.getMonth() + 1);
+    }
+    d.setDate(20);
+    const nextDueDate = d.toISOString().split('T')[0];
+    
+    console.log(`Fix Debug: Forcing new nextDueDate to ${nextDueDate}`);
 
     // 2. Definir novos valores
     const valor = novoPlano === 'profissional' ? 597.00 : 297.00;
