@@ -318,7 +318,7 @@ export const AnalysisReport: React.FC<AnalysisReportProps> = ({
                   </div>
                   <div className="col-span-2">
                     <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Data da Análise</p>
-                    <p className="text-sm text-gray-600">{new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
+                    <p className="text-sm text-gray-600">{new Date(createdAt || Date.now()).toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
                   </div>
                 </div>
               </div>
