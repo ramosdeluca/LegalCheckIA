@@ -218,7 +218,6 @@ export const ProfileSettings: React.FC<ProfileSettingsProps> = ({ onClose }) => 
 
     return (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-// ... (rest of the file remains similar until section)
             <motion.div
                 initial={{ opacity: 0, scale: 0.95, y: 20 }}
                 animate={{ opacity: 1, scale: 1, y: 0 }}
