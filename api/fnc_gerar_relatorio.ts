@@ -1,10 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import * as pdfjs from 'pdfjs-dist';
-
-// Configuração necessária para rodar pdfjs no Node/Vercel
-const pdfjsWorkerPath = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.mjs`;
-// @ts-ignore
-if (typeof window === 'undefined') pdfjs.GlobalWorkerOptions.workerSrc = pdfjsWorkerPath;
+import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SERVICE_ROLE_KEY || '';
