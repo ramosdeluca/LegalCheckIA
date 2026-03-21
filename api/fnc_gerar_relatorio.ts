@@ -27,7 +27,7 @@ export default async function handler(req: any, res: any) {
   
   const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-  // --- LOGICA DE WORKER: Capturar 1 Job da Fila ---
+  // ---- LOGICA DE WORKER: Capturar 1 Job da Fila ---
   const { data: jobData, error: dequeueErr } = await supabase.rpc('dequeue_analysis_job').maybeSingle();
   const job = jobData as any;
 
