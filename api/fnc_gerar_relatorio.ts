@@ -1,16 +1,17 @@
 import { createClient } from '@supabase/supabase-js';
 
-// Polyfills para rodar pdfjs no Node/Vercel (Referenciado da documentação de compatibilidade)
-if (typeof global !== 'undefined') {
-  // @ts-ignore
-  if (!global.DOMMatrix) global.DOMMatrix = class {};
-  // @ts-ignore
-  if (!global.ImageData) global.ImageData = class {};
-  // @ts-ignore
-  if (!global.Path2D) global.Path2D = class {};
-}
+// Polyfills CRÍTICOS para rodar pdfjs no Node/Vercel (Deve rodar ANTES do import da biblioteca)
+const polyfills = {
+  DOMMatrix: class {},
+  ImageData: class {},
+  Path2D: class {}
+};
 
-import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
+for (const [key, value] of Object.entries(polyfills)) {
+  if (typeof (globalThis as any)[key] === 'undefined') {
+    Object.defineProperty(globalThis, key, { value, writable: true, configurable: true });
+  }
+}
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SERVICE_ROLE_KEY || '';
@@ -18,6 +19,9 @@ const geminiApiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_K
 
 async function extractTextFromPdf(url: string) {
   try {
+     // Import dinâmico para garantir que os polyfills acima já estejam ativos
+    const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+    
     console.log(`[Worker Fallback] Tentando extrair texto de: ${url}`);
     const response = await fetch(url);
     const buffer = await response.arrayBuffer();
