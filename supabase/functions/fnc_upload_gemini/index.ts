@@ -195,7 +195,7 @@ serve(async (req) => {
 
       const file = await uploadToGemini(publicUrl, path);
       googleFiles.push(file);
-      geminiFileData.push({ uri: file.uri, mime: file.mimeType });
+      geminiFileData.push({ uri: file.uri, mime: file.mimeType, original_url: publicUrl });
     }
 
     console.log("[fnc_upload_gemini] Arquivos processados. Salvando URIs no banco...");

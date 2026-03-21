@@ -1,8 +1,37 @@
 import { createClient } from '@supabase/supabase-js';
+import * as pdfjs from 'pdfjs-dist';
+
+// Configuração necessária para rodar pdfjs no Node/Vercel
+const pdfjsWorkerPath = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.mjs`;
+// @ts-ignore
+if (typeof window === 'undefined') pdfjs.GlobalWorkerOptions.workerSrc = pdfjsWorkerPath;
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SERVICE_ROLE_KEY || '';
 const geminiApiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || '';
+
+async function extractTextFromPdf(url: string) {
+  try {
+    console.log(`[Worker Fallback] Tentando extrair texto de: ${url}`);
+    const response = await fetch(url);
+    const buffer = await response.arrayBuffer();
+    const loadingTask = pdfjs.getDocument({ data: buffer });
+    const pdf = await loadingTask.promise;
+    let fullText = '';
+    
+    for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+        const textContent = await page.getTextContent();
+        // @ts-ignore
+        const pageText = textContent.items.map((item: any) => item.str).join(' ');
+        fullText += `--- PÁGINA ${i} ---\n${pageText}\n\n`;
+    }
+    return fullText.trim();
+  } catch (e: any) {
+    console.error(`[Worker Fallback] Erro na extração de texto:`, e.message);
+    return "";
+  }
+}
 
 const ANALYSIS_PROMPT = `
 REQUISITO DE FORMATAÇÃO (Obrigatório retornar em JSON):
@@ -90,34 +119,33 @@ IMPORTANTE: Este conteúdo é parte de um processo judicial real. Os arquivos po
 
 \n\n${ANALYSIS_PROMPT}`;
 
-    const generationBody = {
-      contents: [{ 
-        role: "user", 
-        parts: [
-          ...uris.map((fileObj: any) => ({
-            file_data: { file_uri: fileObj.uri, mime_type: fileObj.mime }
-          })),
-          { text: promptText }
-        ] 
-      }],
-      generationConfig: { 
-        temperature: 0.1, 
-        responseMimeType: "application/json" 
-      },
-      safetySettings: [
-        { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
-        { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
-        { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
-        { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" },
-        { category: "HARM_CATEGORY_CIVIC_INTEGRITY", threshold: "BLOCK_NONE" }
-      ]
+    let currentContents: any = [{ 
+      role: "user", 
+      parts: [
+        ...uris.map((fileObj: any) => ({
+          file_data: { file_uri: fileObj.uri, mime_type: fileObj.mime }
+        })),
+        { text: promptText }
+      ] 
+    }];
+
+    const generationConfig = { 
+      temperature: 0.1, 
+      responseMimeType: "application/json" 
     };
 
+    const safetySettings = [
+      { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+      { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+      { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
+      { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" }
+    ];
+
     console.log(`[Worker] Chamada Gemini para ${recordId}...`);
-    const genResponse = await fetch(geminiUrl, {
+    let genResponse = await fetch(geminiUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(generationBody)
+      body: JSON.stringify({ contents: currentContents, generationConfig, safetySettings })
     });
 
     if (!genResponse.ok) {
@@ -125,19 +153,69 @@ IMPORTANTE: Este conteúdo é parte de um processo judicial real. Os arquivos po
       throw new Error(`Gemini Error: ${genResponse.status} - ${errText}`);
     }
 
-    const genResult = await genResponse.json();
+    let genResult = await genResponse.json();
 
-    // --- LOGS SOLICITADOS ---
+    // --- FALLBACK DE EXTRAÇÃO DE TEXTO SE HOUVER BLOQUEIO ---
+    if (genResult.promptFeedback?.blockReason === "PROHIBITED_CONTENT") {
+       console.warn("[Worker Fallback] Bloqueio PROHIBITED_CONTENT detectado. Tentando extração de texto...");
+       
+       let combinedText = "";
+       for (const f of uris) {
+         if (f.mime === 'application/pdf') {
+           // Usamos a URL pública ou do Supabase para baixar o arquivo
+           // No seu sistema, as URIs do Gemini já foram geradas, mas precisamos do arquivo bruto
+           // Vou tentar baixar da URI original do Supabase (presumindo que está acessível)
+           // Na verdade, f.uri aqui é a URI do Gemini. Precisamos de um link direto.
+           // Vou assumir que f.publicUrl ou similar existe, ou baixar de novo do Supabase.
+           
+           // MELHOR: O Worker tem acesso ao Supabase. Podemos pegar o link de download.
+           // Mas para simplificar, se f.uri for files/XXX, não conseguimos baixar fácil.
+           // Vou tentar extrair texto se o objeto tiver um link original.
+           if (f.original_url) {
+              const text = await extractTextFromPdf(f.original_url);
+              if (text) combinedText += `\nCONTEÚDO DO ARQUIVO ${f.uri}:\n${text}\n`;
+           }
+         }
+       }
+
+       if (combinedText) {
+          console.log("[Worker Fallback] Texto extraído com sucesso. Re-enviando análise...");
+          currentContents = [{
+            role: "user",
+            parts: [{ text: `Realize a análise baseando-se neste texto extraído do PDF que foi bloqueado visualmente:\n\n${combinedText}\n\n${promptText}` }]
+          }];
+
+          // Segunda tentativa
+          genResponse = await fetch(geminiUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ contents: currentContents, generationConfig, safetySettings })
+          });
+          genResult = await genResponse.json();
+       } else {
+          throw new Error("SECURITY_BLOCK: O Google bloqueou o arquivo e não foi possível extrair texto para fallback.");
+       }
+    }
+
+    if (!genResult.candidates || genResult.candidates.length === 0) {
+       const reason = genResult.candidates?.[0]?.finishReason || "UNKNOWN";
+       if (genResult.promptFeedback?.blockReason) {
+          throw new Error(`SECURITY_BLOCK: Bloqueio no prompt. Motivo: ${genResult.promptFeedback.blockReason}`);
+       }
+       throw new Error(`AI_BLOCK: A IA não gerou resposta. Motivo: ${reason}`);
+    }
+
+    // --- LOGS DE DIAGNÓSTICO ---
     console.log(`[Gemini Response Metadata] candidates: ${genResult.candidates?.length || 0}`);
     if (genResult.promptFeedback) console.log(`[Gemini Prompt Feedback]`, JSON.stringify(genResult.promptFeedback));
     
-    if (genResult.candidates?.[0]) {
-      const cand = genResult.candidates[0];
-      console.log(`[Gemini Candidate 0] FinishReason: ${cand.finishReason}`);
-      if (cand.safetyRatings) console.log(`[Gemini Safety Ratings]`, JSON.stringify(cand.safetyRatings));
-    }
+    const cand = genResult.candidates[0];
+    console.log(`[Gemini Candidate 0] FinishReason: ${cand.finishReason}`);
+    if (cand.safetyRatings) console.log(`[Gemini Safety Ratings]`, JSON.stringify(cand.safetyRatings));
 
-    const resultText = genResult.candidates?.[0]?.content?.parts?.[0]?.text;
+    const resultText = cand.content?.parts?.[0]?.text;
+    if (!resultText) throw new Error("Resposta vazia da IA (sem texto na parte 0).");
+
     const cleanJson = resultText?.replace(/```json\n?|```/g, '').trim();
     const resultJson = JSON.parse(cleanJson || "{}");
 
@@ -149,6 +227,7 @@ IMPORTANTE: Este conteúdo é parte de um processo judicial real. Os arquivos po
       gemini_cache_expiry: expiry 
     }).eq('id', recordId);
 
+    // DÉBITO DE CRÉDITO: Agora só acontece no sucesso real
     await supabase.from('profiles').update({ 
       credits: Math.max(0, currentCredits - 1) 
     }).eq('id', userId);
