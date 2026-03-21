@@ -24,6 +24,7 @@
     "lucide-react": "^0.546.0",
     "modern-screenshot": "^4.6.8",
     "motion": "^12.35.2",
+    "pdf-parse": "^2.4.5",
     "pdfjs-dist": "^5.5.207",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

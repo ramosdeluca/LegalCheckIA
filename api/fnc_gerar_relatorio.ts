@@ -1,17 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
-
-// Polyfills CRÍTICOS para rodar pdfjs no Node/Vercel (Deve rodar ANTES do import da biblioteca)
-const polyfills = {
-  DOMMatrix: class {},
-  ImageData: class {},
-  Path2D: class {}
-};
-
-for (const [key, value] of Object.entries(polyfills)) {
-  if (typeof (globalThis as any)[key] === 'undefined') {
-    Object.defineProperty(globalThis, key, { value, writable: true, configurable: true });
-  }
-}
+import * as pdf from 'pdf-parse';
+const pdfParse = (pdf as any).default || pdf;
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SERVICE_ROLE_KEY || '';
@@ -19,26 +8,14 @@ const geminiApiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_K
 
 async function extractTextFromPdf(url: string) {
   try {
-     // Import dinâmico para garantir que os polyfills acima já estejam ativos
-    const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
-    
-    console.log(`[Worker Fallback] Tentando extrair texto de: ${url}`);
+    console.log(`[Worker Fallback] Extraindo texto via pdf-parse de: ${url}`);
     const response = await fetch(url);
     const buffer = await response.arrayBuffer();
-    const loadingTask = pdfjs.getDocument({ data: buffer });
-    const pdf = await loadingTask.promise;
-    let fullText = '';
-    
-    for (let i = 1; i <= pdf.numPages; i++) {
-        const page = await pdf.getPage(i);
-        const textContent = await page.getTextContent();
-        // @ts-ignore
-        const pageText = textContent.items.map((item: any) => item.str).join(' ');
-        fullText += `--- PÁGINA ${i} ---\n${pageText}\n\n`;
-    }
-    return fullText.trim();
+    // @ts-ignore
+    const data = await pdfParse(Buffer.from(buffer));
+    return data.text || "";
   } catch (e: any) {
-    console.error(`[Worker Fallback] Erro na extração de texto:`, e.message);
+    console.error(`[Worker Fallback] Erro na extração de texto (pdf-parse):`, e.message);
     return "";
   }
 }
