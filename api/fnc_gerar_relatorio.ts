@@ -1,4 +1,15 @@
 import { createClient } from '@supabase/supabase-js';
+
+// Polyfills para rodar pdfjs no Node/Vercel (Referenciado da documentação de compatibilidade)
+if (typeof global !== 'undefined') {
+  // @ts-ignore
+  if (!global.DOMMatrix) global.DOMMatrix = class {};
+  // @ts-ignore
+  if (!global.ImageData) global.ImageData = class {};
+  // @ts-ignore
+  if (!global.Path2D) global.Path2D = class {};
+}
+
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
