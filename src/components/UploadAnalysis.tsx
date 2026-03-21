@@ -128,9 +128,9 @@ export const UploadAnalysis: React.FC<UploadAnalysisProps> = ({ processoId, onAn
         }
         await supabase.from('analises').delete().eq('processo_id', processoId);
       }
-
       const mediaUrls: string[] = [];
       const pdfUrls: string[] = [];
+      let combinedPdfText = "";
 
       // 1. Process and Upload Videos/Audios
       for (let i = 0; i < videoFiles.length; i++) {
@@ -147,9 +147,17 @@ export const UploadAnalysis: React.FC<UploadAnalysisProps> = ({ processoId, onAn
         mediaUrls.push(publicUrl);
       }
 
-      // 2. Upload PDFs
+      // 2. Upload PDFs & Extract Text (Fallback for PROHIBITED_CONTENT)
       for (let i = 0; i < pdfFiles.length; i++) {
         const file = pdfFiles[i];
+        setProgress(`Lendo PDF ${i + 1}/${pdfFiles.length}...`);
+        
+        // Extrair texto no browser (estável e rápido)
+        const textContent = await extractTextFromPdf(file);
+        if (textContent) {
+          combinedPdfText += `\n--- CONTEÚDO DO ARQUIVO: ${file.name} ---\n${textContent}\n`;
+        }
+
         setProgress(`Subindo PDF ${i + 1}/${pdfFiles.length}...`);
         const pdfPath = `${user.id}/${Date.now()}_processo_${i}.pdf`;
         const { error: pError } = await supabase.storage.from('legalcheck').upload(pdfPath, file);
@@ -159,7 +167,7 @@ export const UploadAnalysis: React.FC<UploadAnalysisProps> = ({ processoId, onAn
         pdfUrls.push(publicUrl);
       }
 
-      // 3. Save to DB (com hashes)
+      // 3. Save to DB (com hashes e texto extraído)
       const { error: dbError } = await supabase.from('analises').insert({
         processo_id: processoId,
         user_id: user.id,
@@ -170,7 +178,8 @@ export const UploadAnalysis: React.FC<UploadAnalysisProps> = ({ processoId, onAn
         video_urls: mediaUrls,
         pdf_urls: pdfUrls,
         video_hashes: currentVideoHashes,
-        pdf_hashes: currentPdfHashes
+        pdf_hashes: currentPdfHashes,
+        pdf_text_content: combinedPdfText.trim()
       });
 
       if (dbError) throw dbError;

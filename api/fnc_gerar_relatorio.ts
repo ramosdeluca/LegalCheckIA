@@ -1,24 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
-import * as pdf from 'pdf-parse';
-const pdfParse = (pdf as any).default || pdf;
 
 const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SERVICE_ROLE_KEY || '';
 const geminiApiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || '';
-
-async function extractTextFromPdf(url: string) {
-  try {
-    console.log(`[Worker Fallback] Extraindo texto via pdf-parse de: ${url}`);
-    const response = await fetch(url);
-    const buffer = await response.arrayBuffer();
-    // @ts-ignore
-    const data = await pdfParse(Buffer.from(buffer));
-    return data.text || "";
-  } catch (e: any) {
-    console.error(`[Worker Fallback] Erro na extração de texto (pdf-parse):`, e.message);
-    return "";
-  }
-}
 
 const ANALYSIS_PROMPT = `
 REQUISITO DE FORMATAÇÃO (Obrigatório retornar em JSON):
@@ -65,7 +49,7 @@ export default async function handler(req: any, res: any) {
     // 1. Localizar a análise correspondente que está pronta para processar
     const { data: analise, error: analiseErr } = await supabase
       .from('analises')
-      .select('id, user_id, gemini_file_uris')
+      .select('id, user_id, gemini_file_uris, pdf_text_content')
       .eq('processo_id', processId)
       .eq('status', 'arquivos_prontos')
       .order('created_at', { ascending: false })
@@ -79,6 +63,7 @@ export default async function handler(req: any, res: any) {
     const userId = analise.user_id;
     const uris = analise.gemini_file_uris || [];
     const recordId = analise.id;
+    const preExtractedText = analise.pdf_text_content;
 
     // 2. Carregar Créditos do Perfil
     const { data: profileData, error: profileErr } = await supabase
@@ -87,12 +72,8 @@ export default async function handler(req: any, res: any) {
       .eq('id', userId)
       .single();
 
-    if (profileErr || !profileData) throw new Error("Perfil do usuário não encontrado.");
+    if (profileErr || !profileData) throw new Error("Usuário não encontrado.");
     const currentCredits = profileData.credits || 0;
-
-    if (currentCredits <= 0) {
-      throw new Error("Saldo insuficiente de créditos.");
-    }
 
     if (!uris.length) throw new Error("URIs dos arquivos não encontradas no banco.");
 
@@ -142,37 +123,16 @@ IMPORTANTE: Este conteúdo é parte de um processo judicial real. Os arquivos po
 
     let genResult = await genResponse.json();
 
-    // --- FALLBACK DE EXTRAÇÃO DE TEXTO SE HOUVER BLOQUEIO ---
+    // --- FALLBACK DE TEXTO PRÉ-EXTRAÍDO (SEM BIBLIOTECAS NO BACKEND) ---
     if (genResult.promptFeedback?.blockReason === "PROHIBITED_CONTENT") {
-       console.warn("[Worker Fallback] Bloqueio PROHIBITED_CONTENT detectado. Tentando extração de texto...");
-       
-       let combinedText = "";
-       for (const f of uris) {
-         if (f.mime === 'application/pdf') {
-           // Usamos a URL pública ou do Supabase para baixar o arquivo
-           // No seu sistema, as URIs do Gemini já foram geradas, mas precisamos do arquivo bruto
-           // Vou tentar baixar da URI original do Supabase (presumindo que está acessível)
-           // Na verdade, f.uri aqui é a URI do Gemini. Precisamos de um link direto.
-           // Vou assumir que f.publicUrl ou similar existe, ou baixar de novo do Supabase.
-           
-           // MELHOR: O Worker tem acesso ao Supabase. Podemos pegar o link de download.
-           // Mas para simplificar, se f.uri for files/XXX, não conseguimos baixar fácil.
-           // Vou tentar extrair texto se o objeto tiver um link original.
-           if (f.original_url) {
-              const text = await extractTextFromPdf(f.original_url);
-              if (text) combinedText += `\nCONTEÚDO DO ARQUIVO ${f.uri}:\n${text}\n`;
-           }
-         }
-       }
-
-       if (combinedText) {
-          console.log("[Worker Fallback] Texto extraído com sucesso. Re-enviando análise...");
+       if (preExtractedText) {
+          console.log("[Worker Fallback] Bloqueio detectado. Usando texto pré-extraído do banco...");
           currentContents = [{
             role: "user",
-            parts: [{ text: `Realize a análise baseando-se neste texto extraído do PDF que foi bloqueado visualmente:\n\n${combinedText}\n\n${promptText}` }]
+            parts: [{ text: `Realize a análise baseando-se neste texto extraído do processo que foi bloqueado visualmente pelo Google:\n\n${preExtractedText}\n\n${promptText}` }]
           }];
 
-          // Segunda tentativa
+          // Segunda tentativa (Apenas Texto)
           genResponse = await fetch(geminiUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -180,7 +140,7 @@ IMPORTANTE: Este conteúdo é parte de um processo judicial real. Os arquivos po
           });
           genResult = await genResponse.json();
        } else {
-          throw new Error("SECURITY_BLOCK: O Google bloqueou o arquivo e não foi possível extrair texto para fallback.");
+          throw new Error("SECURITY_BLOCK: O Google bloqueou o arquivo e não há texto extraído disponível no banco para fallback.");
        }
     }
 
