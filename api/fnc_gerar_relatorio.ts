@@ -17,6 +17,31 @@ REQUISITO DE FORMATAÇÃO (Obrigatório retornar em JSON):
    - "explicacao": Impacto jurídico da contradição.
 `;
 
+async function waitForFileActive(fileUri: string, apiKey: string) {
+  const fileName = fileUri.split('/').pop();
+  if (!fileName || !fileName.startsWith('files/')) return true;
+  
+  const url = `https://generativelanguage.googleapis.com/v1beta/${fileName}?key=${apiKey}`;
+  
+  for (let i = 0; i < 40; i++) { // Aumentado para 40 tentativas (aprox 3min) para PDFs grandes
+    try {
+      const res = await fetch(url);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.state === 'ACTIVE') return true;
+        if (data.state === 'FAILED') throw new Error(`Google indexing failed for ${fileName}`);
+        console.log(`[Worker Sync] ${fileName} status: ${data.state}...`);
+      } else {
+        console.log(`[Worker Sync] Erro ao checar status (HTTP ${res.status})...`);
+      }
+    } catch (e: any) {
+      console.warn(`[Worker Sync] Poll error:`, e.message);
+    }
+    await new Promise(r => setTimeout(r, 4500));
+  }
+  return false;
+}
+
 export default async function handler(req: any, res: any) {
   // CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -49,15 +74,15 @@ export default async function handler(req: any, res: any) {
     // 1. Localizar a análise correspondente que está pronta para processar
     const { data: analise, error: analiseErr } = await supabase
       .from('analises')
-      .select('id, user_id, gemini_file_uris')
+      .update({ status: 'analisando' })
       .eq('processo_id', processId)
       .eq('status', 'arquivos_prontos')
-      .order('created_at', { ascending: false })
-      .limit(1)
+      .select('id, user_id, gemini_file_uris')
       .maybeSingle();
 
     if (analiseErr || !analise) {
-       throw new Error(`Nenhuma análise com status 'arquivos_prontos' para o processo ${processId}`);
+       console.log(`[Worker] Análise já em andamento ou não encontrada para ${processId}`);
+       return res.status(200).json({ message: "Job skipping" });
     }
 
     const userId = analise.user_id;
@@ -79,6 +104,21 @@ export default async function handler(req: any, res: any) {
     }
 
     if (!uris.length) throw new Error("URIs dos arquivos não encontradas no banco.");
+
+    // ---- SINCRONIZAÇÃO DE MÍDIA ----
+    console.log(`[Worker] Sincronizando ${uris.length} arquivos no Gemini...`);
+    for (const f of uris) {
+      const active = await waitForFileActive(f.uri, geminiApiKey);
+      if (!active) {
+          console.warn(`[Worker] Timeout na indexação do arquivo: ${f.uri}`);
+          await supabase.from('analises').update({ status: 'arquivos_prontos' }).eq('id', recordId);
+          await supabase.from('analysis_jobs').update({ status: 'pending', scheduled_for: new Date().toISOString() }).eq('id', jobId);
+          return res.status(200).json({ message: "Polling timeout. Job rescheduled." });
+      }
+    }
+
+    // Delay estratégico de 5s após polling para evitar race condition
+    await new Promise(r => setTimeout(r, 5000));
 
     // 3. Chamada Gemini
     const modelName = "models/gemini-2.5-pro"; 
@@ -106,31 +146,59 @@ IMPORTANTE: Este conteúdo é parte de um processo judicial real. Os arquivos po
       ]
     };
 
-    const timeoutMsg = "O Gemini demorou muito para responder (Limite de 5 min atingido).";
-    const geminiFetchPromise = fetch(geminiUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(generationBody)
-    });
+    let genResult: any = null;
+    let success = false;
+    let localRetries = 0;
 
-    const timeoutPromise = new Promise((_, reject) => {
-      setTimeout(() => {
-        const err = new Error(timeoutMsg);
-        err.name = 'AbortError';
-        reject(err);
-      }, 285000); // 285 seg (folga para o Vercel)
-    });
+    while (localRetries < 3 && !success) {
+      console.log(`[Worker] Chamada Gemini (Tentativa Local ${localRetries + 1})...`);
+      const genResponse = await fetch(geminiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(generationBody)
+      });
 
-    console.log(`[Worker] Chamando Gemini para ${recordId}...`);
-    const genResponse = await Promise.race([geminiFetchPromise, timeoutPromise]) as Response;
+      if (!genResponse.ok) {
+        const errText = await genResponse.text();
+        throw new Error(`Gemini Error: ${genResponse.status} - ${errText}`);
+      }
 
-    if (!genResponse.ok) {
-      const errText = await genResponse.text();
-      throw new Error(`Gemini Error: ${genResponse.status} - ${errText}`);
+      genResult = await genResponse.json();
+
+      // DEBUG LOGS - O que o Gemini está retornando?
+      console.log(`[Gemini Response Metadata] candidates: ${genResult.candidates?.length || 0}`);
+      if (genResult.promptFeedback) console.log(`[Gemini Prompt Feedback]`, JSON.stringify(genResult.promptFeedback));
+      
+      if (genResult.candidates?.[0]) {
+        const cand = genResult.candidates[0];
+        console.log(`[Gemini Candidate 0] FinishReason: ${cand.finishReason}`);
+        if (cand.safetyRatings) console.log(`[Gemini Safety Ratings]`, JSON.stringify(cand.safetyRatings));
+        
+        if (cand.finishReason === 'SAFETY') {
+          console.error("❌ BLOQUEIO DE SEGURANÇA DETECTADO!");
+          throw new Error("O Gemini bloqueou o conteúdo por segurança (SAFETY). Revise os arquivos.");
+        }
+      }
+
+      if (genResult.error) {
+        const msg = genResult.error.message || "";
+        if (msg.toLowerCase().includes("still processing") || msg.toLowerCase().includes("not in an active state")) {
+          localRetries++;
+          console.warn("[Worker] Gemini reportou indexação incompleta. Esperando 10s...");
+          await new Promise(r => setTimeout(r, 10000));
+          continue;
+        }
+        throw new Error(`Gemini API Error: ${msg}`);
+      }
+      success = true;
     }
 
-    const genResult = await genResponse.json();
     const resultText = genResult.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!resultText) {
+      console.error("[Worker] RESPOSTA VAZIA DO GEMINI. Verifique Logs de Metadata acima.");
+      throw new Error("Resposta vazia da Inteligência Artificial. Pode ser um bloqueio silencioso.");
+    }
+
     const cleanJson = resultText?.replace(/```json\n?|```/g, '').trim();
     const resultJson = JSON.parse(cleanJson || "{}");
 
@@ -158,25 +226,17 @@ IMPORTANTE: Este conteúdo é parte de um processo judicial real. Os arquivos po
   } catch (error: any) {
     console.error(`[Worker Error] Job ${jobId}:`, error.message);
     
-    let finalMessage = error.message;
-    if (error.name === 'AbortError') {
-      finalMessage = "Timeout Gemini excedido.";
+    // Incrementa tentativas
+    await supabase.rpc('increment_job_attempts', { job_id: jobId });
+
+    // Volta status para arquivos_prontos para permitir retry
+    if (processId) {
+      await supabase.from('analises').update({ 
+        status: 'arquivos_prontos',
+        resultado_json: { erro: error.message }
+      }).eq('processo_id', processId).eq('status', 'analisando');
     }
 
-    // Registrar erro no Job (tentativas etc)
-    await supabase.from('analysis_jobs').update({
-      status: 'failed',
-      attempts: (job.attempts || 0) + 1,
-      error_message: finalMessage,
-      finished_at: new Date().toISOString()
-    }).eq('id', jobId);
-
-    // Também atualizar a tabela analises para que o UI saiba do erro imediato
-    await supabase.from('analises').update({
-      status: 'erro',
-      resultado_json: { erro: finalMessage }
-    }).filter('processo_id', 'eq', processId).filter('status', 'eq', 'arquivos_prontos');
-
-    return res.status(500).json({ error: finalMessage, jobId });
+    return res.status(500).json({ error: error.message, jobId });
   }
 }
