@@ -78,13 +78,13 @@ async function callOpenAI(apiKey: string, text: string, transcript: string, prom
     method: 'POST',
     headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      model: "gpt-4o-mini",
+      model: "gpt-4o", // O 4o padrão é mais inteligente que o mini para copiar timestamps literais
       messages: [
-        { role: "system", content: "Você é um Desembargador revisor altamente qualificado e extremamente detalhista. Use o formato JSON.\n\nSua missão é realizar um confronto analítico entre o PDF do processo e as falas da audiência. Use as marcações de tempo [MM:SS] fornecidas pela transcrição para garantir que o relatório final coincida exatamente com o vídeo/áudio do advogado." },
-        { role: "user", content: `CONTEÚDO DO PROCESSO (PDF):\n${cleanPdf}\n\nTRANSCRIÇÃO DA AUDIÊNCIA (DEEPGRAM NOVA-2-LEGAL):\n${transcript}\n\n${prompt}` }
+        { role: "system", content: "Você é um Perito Criminal e Analista Jurídico de alta senioridade. Sua missão é realizar um confronto exaustivo entre a transcrição da audiência e o PDF do processo para encontrar mentiras e contradições.\n\nREQUISITO CRÍTICO DE TEMPO: Na transcrição, você verá marcas como [02:15]. Você DEVE COPIAR ESSES MARCADORES LITERALMENTE para o campo 'timestamp' das contradições. Nunca invente ou resuma horários.\n\nUse o formato JSON." },
+        { role: "user", content: `TRANSCRIÇÃO DA AUDIÊNCIA (DEEPGRAM NOVA-2):\n${transcript}\n\nCONTEÚDO DO PROCESSO (PDF):\n${cleanPdf}\n\n${prompt}` }
       ],
       response_format: { type: "json_object" },
-      temperature: 0.2
+      temperature: 0.1 // Temperatura baixa para máxima precisão
     })
   });
   
