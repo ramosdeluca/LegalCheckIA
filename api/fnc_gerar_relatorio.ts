@@ -76,7 +76,7 @@ export default async function handler(req: any, res: any) {
     const currentCredits = profileData.credits || 0;
 
     // 3. Chamada Gemini
-    const modelName = "models/gemini-2.0-flash"; 
+    const modelName = "models/gemini-2.5-flash"; 
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/${modelName}:generateContent?key=${geminiApiKey}`;
     
     // Instrução de Sistema (Configura o comportamento da IA)
