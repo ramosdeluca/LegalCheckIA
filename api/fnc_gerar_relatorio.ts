@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SERVICE_ROLE_KEY || '';
 const geminiApiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || '';
+const openaiApiKey = process.env.OPENAI_API_KEY || '';
 
 const ANALYSIS_PROMPT = `
 REQUISITO DE FORMATAÇÃO (Obrigatório retornar em JSON):
@@ -16,6 +17,34 @@ REQUISITO DE FORMATAÇÃO (Obrigatório retornar em JSON):
    - "o_que_diz_o_processo": Prova documental/depoimento contraditório no processo.
    - "explicacao": Impacto jurídico da contradição.
 `;
+
+async function callOpenAI(apiKey: string, text: string, prompt: string) {
+  console.log("[Worker Fallback] Chamando OpenAI GPT-4o-mini...");
+  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${apiKey}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      model: "gpt-4o-mini",
+      messages: [
+        { role: "system", content: "Você é um assistente jurídico sênior. Analise o processo e retorne APENAS o JSON solicitado, sem comentários extras." },
+        { role: "user", content: `CONTEXTO DO PROCESSO:\n${text}\n\n${prompt}` }
+      ],
+      response_format: { type: "json_object" },
+      temperature: 0.1
+    })
+  });
+  
+  if (!response.ok) {
+    const errText = await response.text();
+    throw new Error(`OpenAI Error: ${response.status} - ${errText}`);
+  }
+  
+  const result = await response.json();
+  return result.choices[0].message.content;
+}
 
 export default async function handler(req: any, res: any) {
   // CORS
@@ -46,7 +75,6 @@ export default async function handler(req: any, res: any) {
   console.log(`[Worker] Iniciando processamento do Job ${jobId} para Processo ${processId}`);
 
   try {
-    // 1. Localizar a análise correspondente que está pronta para processar
     const { data: analise, error: analiseErr } = await supabase
       .from('analises')
       .select('id, user_id, gemini_file_uris, pdf_text_content')
@@ -56,176 +84,94 @@ export default async function handler(req: any, res: any) {
       .limit(1)
       .maybeSingle();
 
-    if (analiseErr || !analise) {
-       throw new Error(`Nenhuma análise com status 'arquivos_prontos' para o processo ${processId}`);
-    }
+    if (analiseErr || !analise) throw new Error("Análise não encontrada.");
 
     const userId = analise.user_id;
     const uris = analise.gemini_file_uris || [];
     const recordId = analise.id;
     const preExtractedText = analise.pdf_text_content;
 
-    // 2. Carregar Créditos do Perfil
-    const { data: profileData, error: profileErr } = await supabase
-      .from('profiles')
-      .select('credits')
-      .eq('id', userId)
-      .single();
+    // Carregar Créditos
+    const { data: profileData } = await supabase.from('profiles').select('credits').eq('id', userId).single();
+    const currentCredits = profileData?.credits || 0;
 
-    if (profileErr || !profileData) throw new Error("Usuário não encontrado.");
-    const currentCredits = profileData.credits || 0;
-
-    // 3. Chamada Gemini
-    // Usando 2.5 Flash conforme sua preferência, mantendo o endpoint v1beta para compatibilidade
+    // 1. TENTATIVA GEMINI
     const modelName = "models/gemini-2.5-flash"; 
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/${modelName}:generateContent?key=${geminiApiKey}`;
     
-    // Instrução de Sistema (Configura o comportamento da IA) - Usando padrão v1beta
     const systemInstruction = {
-      parts: [{ text: `Você é um Analista de Dados Técnicos. Sua missão é identificar inconsistências lógicas entre as fontes fornecidas.
-        \n\n${ANALYSIS_PROMPT}` }]
+      parts: [{ text: `Você é um Analista de Dados Técnicos. Sua missão é identificar inconsistências lógicas.\n\n${ANALYSIS_PROMPT}` }]
     };
 
-    const promptText = `Analise os arquivos anexados e gere o relatório JSON estruturado conforme as regras de negócio.`;
+    const promptText = `Analise os arquivos e identifique contradições.`;
 
-    let currentContents: any = [{ 
+    const currentContents = [{ 
       role: "user", 
       parts: [
-        ...uris.map((fileObj: any) => ({
-          file_data: { file_uri: fileObj.uri, mime_type: fileObj.mime }
-        })),
+        ...uris.map((fileObj: any) => ({ file_data: { file_uri: fileObj.uri, mime_type: fileObj.mime } })),
         { text: promptText }
       ] 
     }];
 
-    const generationConfig = { 
-      temperature: 0.1, 
-      response_mime_type: "application/json" 
-    };
-
-    const safetySettings = [
-      { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
-      { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
-      { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
-      { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" }
-    ];
-
-    console.log(`[Worker] Chamada Gemini (${modelName}) para ${recordId}...`);
+    console.log(`[Worker] Tentando Gemini para ${recordId}...`);
     let genResponse = await fetch(geminiUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ 
         contents: currentContents,
         system_instruction: systemInstruction,
-        generation_config: generationConfig,
-        safety_settings: safetySettings
+        generation_config: { temperature: 0.1, response_mime_type: "application/json" },
+        safety_settings: [
+          { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
+          { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
+          { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
+          { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" }
+        ]
       })
     });
 
-    if (!genResponse.ok) {
-      const errText = await genResponse.text();
-      throw new Error(`Gemini Error: ${genResponse.status} - ${errText}`);
-    }
+    let finalResultText = "";
 
-    let genResult = await genResponse.json();
-
-    // --- FALLBACK DE TEXTO PRÉ-EXTRAÍDO COM SANITIZAÇÃO AGRESSIVA SE HOUVER BLOQUEIO NO PROMPT ---
-    if (genResult.promptFeedback?.blockReason === "PROHIBITED_CONTENT") {
-       if (preExtractedText) {
-          console.log("[Worker Fallback] Bloqueio detectado. Sanitizando e tentando novamente...");
-          
-          // Limpeza para passar pelo filtro de entrada (remover gatilhos comuns)
-          const textCleaned = preExtractedText
-             .replace(/(https?:\/\/[^\s]+)/g, '') // Remove URLs
-             .replace(/[^\w\sÀ-ÿ,.!?]/g, '')    // Remove símbolos estranhos
-             .slice(0, 30000); // Limite de 30k char (estratégia de guerrilha)
-
-          // CRÍTICO: No fallback, mantemos os áudios/vídeos 
-          // e substituímos o PDF problemático pelo seu texto sanitizado.
-          const nonPdfUris = uris.filter((u: any) => !u.mime || !u.mime.includes('pdf'));
-          
-          const fallbackContents = [{
-            role: "user",
-            parts: [
-              ...nonPdfUris.map((fileObj: any) => ({
-                file_data: { file_uri: fileObj.uri, mime_type: fileObj.mime }
-              })),
-              { text: `TEXTO DO PROCESSO PARA ANÁLISE:\n\n${textCleaned}\n\nAnalise as fontes (Áudio + Texto acima) e identifique as contradições.` }
-            ]
-          }];
-
-          // Tentativa Final (Áudios + Texto Sanitizado)
-          genResponse = await fetch(geminiUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-              contents: fallbackContents,
-              generation_config: generationConfig,
-              safety_settings: safetySettings
-            })
-          });
-          genResult = await genResponse.json();
+    if (genResponse.ok) {
+       const genResult = await genResponse.json();
+       if (genResult.promptFeedback?.blockReason === "PROHIBITED_CONTENT" || !genResult.candidates || genResult.candidates.length === 0) {
+          console.log("[Worker Fallback] Gemini bloqueou ou falhou. Tentando OpenAI...");
+          if (openaiApiKey) {
+            finalResultText = await callOpenAI(openaiApiKey, preExtractedText || "Sem texto extraído.", ANALYSIS_PROMPT);
+          } else {
+            throw new Error("SECURITY_BLOCK: Gemini bloqueou e OPENAI_API_KEY não configurada.");
+          }
        } else {
-          throw new Error("SECURITY_BLOCK: O Google bloqueou o arquivo e não há texto extraído disponível no banco para fallback.");
+          finalResultText = genResult.candidates[0].content.parts[0].text;
+       }
+    } else {
+       console.warn("[Worker] Erro na API do Gemini. Tentando OpenAI de resgate...");
+       if (openaiApiKey) {
+          finalResultText = await callOpenAI(openaiApiKey, preExtractedText || "Sem texto extraído.", ANALYSIS_PROMPT);
+       } else {
+          const errText = await genResponse.text();
+          throw new Error(`Gemini Error: ${genResponse.status} - ${errText}`);
        }
     }
 
-    if (!genResult.candidates || genResult.candidates.length === 0) {
-       const reason = genResult.candidates?.[0]?.finishReason || "UNKNOWN";
-       if (genResult.promptFeedback?.blockReason) {
-          throw new Error(`SECURITY_BLOCK: Bloqueio no prompt. Motivo: ${genResult.promptFeedback.blockReason}`);
-       }
-       throw new Error(`AI_BLOCK: A IA não gerou resposta. Motivo: ${reason}`);
-    }
+    if (!finalResultText) throw new Error("Falha ao obter resposta de ambas as IAs.");
 
-    // --- LOGS DE DIAGNÓSTICO ---
-    console.log(`[Gemini Response Metadata] candidates: ${genResult.candidates?.length || 0}`);
-    const cand = genResult.candidates[0];
-    const resultText = cand.content?.parts?.[0]?.text;
-    if (!resultText) throw new Error("Resposta vazia da IA.");
-
-    const cleanJson = resultText?.replace(/```json\n?|```/g, '').trim();
+    const cleanJson = finalResultText.replace(/```json\n?|```/g, '').trim();
     const resultJson = JSON.parse(cleanJson || "{}");
 
-    // 4. Sucesso - Update no Banco (Analises e Profiles)
+    // Sucesso - Update no Banco
     const expiry = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
-    await supabase.from('analises').update({
-      resultado_json: resultJson,
-      status: 'concluido',
-      gemini_cache_expiry: expiry 
-    }).eq('id', recordId);
-
-    // DÉBITO DE CRÉDITO
-    await supabase.from('profiles').update({ 
-      credits: Math.max(0, currentCredits - 1) 
-    }).eq('id', userId);
-
-    // 5. Finalizar Job com Sucesso
-    await supabase.from('analysis_jobs').update({
-      status: 'done',
-      finished_at: new Date().toISOString()
-    }).eq('id', jobId);
+    await supabase.from('analises').update({ resultado_json: resultJson, status: 'concluido', gemini_cache_expiry: expiry }).eq('id', recordId);
+    await supabase.from('profiles').update({ credits: Math.max(0, currentCredits - 1) }).eq('id', userId);
+    await supabase.from('analysis_jobs').update({ status: 'done', finished_at: new Date().toISOString() }).eq('id', jobId);
     
     console.log(`[Worker] Job ${jobId} concluído com sucesso.`);
     return res.status(200).json({ success: true, jobId });
 
   } catch (error: any) {
     console.error(`[Worker Error] Job ${jobId}:`, error.message);
-    
-    // Registrar erro no Job
-    await supabase.from('analysis_jobs').update({
-      status: 'failed',
-      attempts: (job.attempts || 0) + 1,
-      error_message: error.message,
-      finished_at: new Date().toISOString()
-    }).eq('id', jobId);
-
-    // Atualizar a tabela analises
-    await supabase.from('analises').update({
-      status: 'erro',
-      resultado_json: { erro: error.message }
-    }).filter('processo_id', 'eq', processId).filter('status', 'eq', 'arquivos_prontos');
-
+    await supabase.from('analysis_jobs').update({ status: 'failed', attempts: (job.attempts || 0) + 1, error_message: error.message, finished_at: new Date().toISOString() }).eq('id', jobId);
+    await supabase.from('analises').update({ status: 'erro', resultado_json: { erro: error.message } }).filter('processo_id', 'eq', processId).filter('status', 'eq', 'arquivos_prontos');
     return res.status(500).json({ error: error.message, jobId });
   }
 }
