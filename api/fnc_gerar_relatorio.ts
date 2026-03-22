@@ -21,12 +21,13 @@ REQUISITO DE FORMATAÇÃO (Obrigatório retornar em JSON):
 async function callOpenAI(apiKey: string, text: string, prompt: string) {
   console.log("[Worker Fallback] Chamando OpenAI GPT-4o-mini (com limpeza de tokens)...");
   
-  // Limpeza de texto para economizar tokens e evitar erro 429
+  // Limpeza profunda de texto para economizar tokens e evitar contexto excedido
   const cleanText = text
     .replace(/\s+/g, ' ')           // Reduz espaços e quebras múltiplas
     .replace(/[^\w\sÀ-ÿ,.!?]/g, '') // Remove caracteres especiais ruidosos
+    .replace(/(ESTADO DE|PODER JUDICIÁRIO|TRIBUNAL DE JUSTIÇA|Documento assinado)/gi, '') // Remove termos repetitivos comuns
     .trim()
-    .slice(0, 450000);              // Limite aprox de 150k tokens (margem de segurança)
+    .slice(0, 350000);              // Limite aprox de 110k tokens (GPT-4o-mini = 128k)
 
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
