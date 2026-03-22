@@ -40,7 +40,7 @@ export const UploadAnalysis: React.FC<UploadAnalysisProps> = ({ processoId, onAn
         const pageText = textContent.items.map((item: any) => item.str).join(' ');
         fullText += pageText + '\n';
       }
-      return fullText;
+      return fullText.replace(/\u0000/g, ''); 
     } catch (err: any) {
       console.error('PDF Extraction Error:', err);
       throw new Error('Falha ao ler o PDF. Verifique se o arquivo não está protegido por senha.');

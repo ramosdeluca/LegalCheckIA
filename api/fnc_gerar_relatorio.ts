@@ -228,7 +228,7 @@ export default async function handler(req: any, res: any) {
     await supabase.from('analises').update({ 
       resultado_json: resultJson, 
       status: 'concluido',
-      audio_transcription: capturedTranscript || null
+      audio_transcription: (capturedTranscript || "").replace(/\u0000/g, '') || null
     }).eq('id', recordId);
     
     await supabase.from('profiles').update({ credits: Math.max(0, currentCredits - 1) }).eq('id', analise.user_id);
