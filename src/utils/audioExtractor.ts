@@ -2,7 +2,7 @@ export const extractAudioFromVideo = async (videoFile: File): Promise<File> => {
     if (videoFile.type.startsWith('audio/')) return videoFile;
 
     const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({
-        sampleRate: 16000 // Lower sample rate for speech to save space
+        sampleRate: 8000 // Even lower sample rate to ensure files stay under Whisper 25MB limit
     });
 
     const arrayBuffer = await videoFile.arrayBuffer();
