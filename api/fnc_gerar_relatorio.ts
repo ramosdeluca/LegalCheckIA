@@ -29,7 +29,7 @@ async function transcribeWithDeepgram(apiKey: string, audioUrl: string, index: n
   console.log(`[Deepgram Fallback] Transcrevendo áudio ${index + 1} (${audioUrl})...`);
   try {
     // Deepgram Nova-2-Legal com suporte a URL direta (muito mais rápido)
-    const url = `https://api.deepgram.com/v1/listen?model=nova-2-legal&smart_format=true&language=pt-BR&utterances=true&punctuate=true`;
+    const url = `https://api.deepgram.com/v1/listen?model=nova-2&smart_format=true&language=pt-BR&utterances=true&punctuate=true`;
     
     const response = await fetch(url, {
       method: 'POST',
