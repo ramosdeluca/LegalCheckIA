@@ -38,11 +38,11 @@ async function callOpenAI(apiKey: string, text: string, prompt: string) {
     body: JSON.stringify({
       model: "gpt-4o-mini",
       messages: [
-        { role: "system", content: "Você é um assistente jurídico sênior. Analise o processo e retorne APENAS o JSON solicitado." },
+        { role: "system", content: "Você é um Desembargador revisor. Sua análise deve ser exaustiva, técnica e extremamente detalhada. Não aceite respostas curtas." },
         { role: "user", content: `CONTEXTO DO PROCESSO (DADOS TÉCNICOS):\n${cleanText}\n\n${prompt}` }
       ],
       response_format: { type: "json_object" },
-      temperature: 0.1
+      temperature: 0.3
     })
   });
   
@@ -144,9 +144,20 @@ export default async function handler(req: any, res: any) {
     if (genResponse.ok) {
        const genResult = await genResponse.json();
        if (genResult.promptFeedback?.blockReason === "PROHIBITED_CONTENT" || !genResult.candidates || genResult.candidates.length === 0) {
-          console.log("[Worker Fallback] Gemini bloqueou ou falhou. Tentando OpenAI...");
+          console.log("[Worker Fallback] Gemini bloqueou ou falhou. Tentando OpenAI (Relatório Incisivo)...");
           if (openaiApiKey) {
-            finalResultText = await callOpenAI(openaiApiKey, preExtractedText || "Sem texto extraído.", ANALYSIS_PROMPT);
+            const OPENAI_ANALYSIS_PROMPT = `
+              Você é um Perito Criminal e Analista Jurídico de alta senioridade. 
+              Sua tarefa é encontrar CONTRADIÇÕES REAIS (mentiras, divergências de datas, locais, nomes ou versões) entre o que foi dito na audiência e o que está escrito no processo.
+
+              REQUISITOS CRÍTICOS:
+              1. "o_que_foi_dito": Não resuma. Transcreva o trecho mais impactante da fala. Seja detalhista.
+              2. "o_que_diz_o_processo": Cite especificamente a contradição. Se o réu disse 'A' no processo e 'B' na audiência, aponte isso claramente.
+              3. "explicacao": Não seja genérico. Explique como isso destrói a tese da defesa ou da acusação. Use termos como 'quebra de credibilidade', 'inconsistência factual' ou 'divergência de depoimento'.
+              4. "gravidade": Reserve 'Alta' para mentiras diretas ou mudanças de versão cruciais.
+            `;
+            
+            finalResultText = await callOpenAI(openaiApiKey, preExtractedText || "Sem texto extraído.", OPENAI_ANALYSIS_PROMPT);
           } else {
             throw new Error("SECURITY_BLOCK: Gemini bloqueou e OPENAI_API_KEY não configurada.");
           }
@@ -156,7 +167,12 @@ export default async function handler(req: any, res: any) {
     } else {
        console.warn("[Worker] Erro na API do Gemini. Tentando OpenAI de resgate...");
        if (openaiApiKey) {
-          finalResultText = await callOpenAI(openaiApiKey, preExtractedText || "Sem texto extraído.", ANALYSIS_PROMPT);
+          const OPENAI_ANALYSIS_PROMPT = `
+            Você é um Perito Criminal e Analista Jurídico de alta senioridade. 
+            Sua tarefa é encontrar CONTRADIÇÕES REAIS entre o depoimento e o processo.
+            \n\n${ANALYSIS_PROMPT}
+          `;
+          finalResultText = await callOpenAI(openaiApiKey, preExtractedText || "Sem texto extraído.", OPENAI_ANALYSIS_PROMPT);
        } else {
           const errText = await genResponse.text();
           throw new Error(`Gemini Error: ${genResponse.status} - ${errText}`);

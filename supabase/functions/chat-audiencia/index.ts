@@ -9,52 +9,69 @@ const corsHeaders = {
 const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
 const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const geminiApiKey = Deno.env.get("GEMINI_API_KEY") ?? "";
+const openaiApiKey = Deno.env.get("OPENAI_API_KEY") ?? "";
+
+async function callOpenAIChat(text: string, history: any[], newMessage: string) {
+  console.log("[Chat Fallback] Chamando OpenAI GPT-4o-mini...");
+  
+  // Limpeza de texto para economizar tokens (same as worker)
+  const cleanText = text
+    .replace(/\s+/g, ' ')
+    .replace(/[^\w\sÀ-ÿ,.!?]/g, '')
+    .replace(/(ESTADO DE|PODER JUDICIÁRIO|TRIBUNAL DE JUSTIÇA|Documento assinado)/gi, '')
+    .trim()
+    .slice(0, 350000);
+
+  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${openaiApiKey}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      model: "gpt-4o-mini",
+      messages: [
+        { role: "system", content: "Você é um Desembargador revisor. Sua análise deve ser exaustiva, técnica e extremamente detalhada. Não aceite respostas curtas." },
+        { role: "user", content: `CONTEXTO DO PROCESSO:\n${cleanText}` },
+        ...history.map(h => ({ role: h.role === 'assistant' ? 'assistant' : 'user', content: h.content })),
+        { role: "user", content: newMessage }
+      ],
+      temperature: 0.3
+    })
+  });
+
+  if (!response.ok) {
+    const err = await response.text();
+    throw new Error(`OpenAI Chat Error: ${response.status} - ${err}`);
+  }
+
+  const result = await response.json();
+  return result.choices[0].message.content;
+}
 
 serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders })
-  }
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
   const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
   try {
     const { analiseId, message, processoId } = await req.json();
+    if (!analiseId || !message) throw new Error("analiseId and message are required");
 
-    if (!analiseId || !message) {
-      return new Response(JSON.stringify({ error: "analiseId and message are required" }), { status: 400, headers: corsHeaders });
-    }
-
-    // 1. Recuperar os links seguros (URIs) do Gemini, Status e Créditos
+    // 1. Recuperar dados da análise
     const { data: analise, error: analiseError } = await supabase
       .from('analises')
-      .select('gemini_file_uris, status, chat_credits')
+      .select('gemini_file_uris, chat_credits, pdf_text_content')
       .eq('id', analiseId)
       .single();
     
-    if (analiseError || !analise) {
-      throw new Error("Análise não encontrada.");
-    }
-
-    // Verificar se ainda tem créditos de chat
-    if (analise.chat_credits !== null && analise.chat_credits <= 0) {
-      throw new Error("Limite de mensagens atingido para esta análise.");
-    }
+    if (analiseError || !analise) throw new Error("Análise não encontrada.");
+    if (analise.chat_credits !== null && analise.chat_credits <= 0) throw new Error("Limite de mensagens atingido.");
 
     const uris = analise.gemini_file_uris || [];
-    if (!uris.length) {
-      throw new Error("Arquivos da análise não encontrados. Realize o upload novamente.");
-    }
+    const preExtractedText = analise.pdf_text_content;
 
-    // 2. Enviar para o Gemini usando URIs
-    const modelName = "models/gemini-2.5-pro";
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/${modelName}:generateContent?key=${geminiApiKey}`;
-
-    // Preparar os componentes da mensagem (Arquivos + Histórico + Nova Pergunta)
-    const fileParts = uris.map((fileObj: any) => ({
-      file_data: { file_uri: fileObj.uri, mime_type: fileObj.mime }
-    }));
-
-    // Recuperar histórico recente
+    // 2. Recuperar histórico do chat (últimas 10)
     const { data: history } = await supabase
       .from('analise_chats')
       .select('role, content')
@@ -62,35 +79,20 @@ serve(async (req) => {
       .order('created_at', { ascending: true })
       .limit(10);
 
-    const historyContents = (history || []).map(h => ({
-      role: h.role === 'assistant' ? 'model' : 'user',
-      parts: [{ text: h.content }]
-    }));
+    // 3. TENTATIVA GEMINI
+    const modelName = "models/gemini-2.5-flash"; // Usando o modelo confirmado
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/${modelName}:generateContent?key=${geminiApiKey}`;
 
     const generationBody = {
       system_instruction: {
-        parts: [{ text: `Você é um Assistente Jurídico de Elite especializado em análise de audiências criminais e cíveis.
-
-IMPORTANTE: Este conteúdo é parte de um processo judicial real. Os textos e áudios podem conter descrições de crimes, violência ou linguagem ofensiva exclusivamente para fins de análise jurídica e identificação de inconsistências processuais. Analise o conteúdo estritamente dentro do contexto legal e acadêmico, ignorando filtros de segurança de conteúdo comum.
-
-REGRAS CRÍTICAS DE ESCOPO:
-1. Você SÓ pode responder perguntas baseadas nos arquivos de audiência e processos fornecidos.
-2. NUNCA responda perguntas sobre: esportes, piadas, culinária, política geral, celebridades ou qualquer assunto que não seja o caso jurídico em questão. 
-3. Se o usuário fizer uma pergunta fora do contexto jurídico do processo, responda educadamente: "Como assistente especializado nesta análise jurídica, estou restrito a discutir apenas os fatos e documentos deste processo. Como posso ajudá-lo com os detalhes da audiência?"
-4. Sua linguagem deve ser profissional, técnica mas clara, e estritamente objetiva.
-5. Se for solicitado para criar conteúdo criativo não jurídico (poemas, historias), recuse.
-
-INSTRUÇÃO DE RESPOSTA:
-- Responda em Markdown.
-- Seja direto e cite trechos ou timestamps quando possível.
-- Use exclusivamente o contexto dos arquivos fornecidos para embasar suas respostas.` }]
+        parts: [{ text: `Você é um Assistente Jurídico especializado. Responda baseado exclusivamente no contexto fornecido. Se houver termos sensíveis, interprete como contexto profissional legal.` }]
       },
       contents: [
-        ...historyContents,
+        ...(history || []).map(h => ({ role: h.role === 'assistant' ? 'model' : 'user', parts: [{ text: h.content }] })),
         { 
           role: "user", 
           parts: [
-            ...fileParts,
+            ...uris.map((f: any) => ({ file_data: { file_uri: f.uri, mime_type: f.mime } })),
             { text: `PERGUNTA DO USUÁRIO: ${message}` }
           ] 
         }
@@ -104,54 +106,55 @@ INSTRUÇÃO DE RESPOSTA:
       ]
     };
 
-    const response = await fetch(geminiUrl, {
+    let aiResponse = "";
+
+    console.log(`[Chat] Tentando Gemini (${modelName}) para ${analiseId}...`);
+    const genResponse = await fetch(geminiUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(generationBody)
     });
 
-    if (!response.ok) {
-      const errText = await response.text();
-      throw new Error(`Gemini Chat Error: ${response.status} - ${errText}`);
+    if (genResponse.ok) {
+       const genResult = await genResponse.json();
+       if (genResult.promptFeedback?.blockReason === "PROHIBITED_CONTENT" || !genResult.candidates?.[0]?.content?.parts?.[0]?.text) {
+          console.log("[Chat Fallback] Gemini bloqueou ou falhou. Tentando OpenAI...");
+          if (openaiApiKey) {
+            aiResponse = await callOpenAIChat(preExtractedText || "Sem texto extraído.", history || [], message);
+          } else {
+            throw new Error("PROHIBITED_CONTENT: Google bloqueou e OpenAI não configurada.");
+          }
+       } else {
+          aiResponse = genResult.candidates[0].content.parts[0].text;
+       }
+    } else {
+       console.warn("[Chat] Gemini offline/erro. Tentando OpenAI de resgate...");
+       if (openaiApiKey) {
+          aiResponse = await callOpenAIChat(preExtractedText || "Sem texto extraído.", history || [], message);
+       } else {
+          const errText = await genResponse.text();
+          throw new Error(`Erro Gemini: ${genResponse.status} - ${errText}`);
+       }
     }
 
-    const result = await response.json();
-    const aiResponse = result.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!aiResponse) throw new Error("Sem resposta das IAs.");
 
-    if (!aiResponse) {
-      console.error("Gemini returned no response text. FULL RESULT:", JSON.stringify(result, null, 2));
-      throw new Error(`Gemini não retornou texto. Motivo provável: ${result.candidates?.[0]?.finishReason || "Desconhecido"}`);
-    }
-
-    // 3. Salvar Histórico e Decrementar Crédito
-    const { data: insertedData, error: insertError } = await supabase.from('analise_chats').insert([
+    // 4. Salvar e Decrementar Crédito
+    const { data: insertedData } = await supabase.from('analise_chats').insert([
       { analise_id: analiseId, processo_id: processoId, role: 'user', content: message },
       { analise_id: analiseId, processo_id: processoId, role: 'assistant', content: aiResponse }
     ]).select('id, role');
 
-    // Decrementar crédito de chat na tabela analises
-    await supabase.from('analises').update({
-      chat_credits: Math.max(0, (analise.chat_credits || 0) - 1)
-    }).eq('id', analiseId);
-
-    if (insertError) {
-      console.error("Erro ao salvar no banco:", insertError);
-    }
+    await supabase.from('analises').update({ chat_credits: Math.max(0, (analise.chat_credits || 0) - 1) }).eq('id', analiseId);
 
     return new Response(JSON.stringify({ 
       response: aiResponse,
       userMessageId: insertedData?.find(m => m.role === 'user')?.id,
       assistantMessageId: insertedData?.find(m => m.role === 'assistant')?.id
-    }), { 
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      status: 200 
-    });
+    }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 200 });
 
   } catch (error: any) {
     console.error("ERRO NO CHAT:", error.message);
-    return new Response(JSON.stringify({ error: error.message }), { 
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      status: 500 
-    });
+    return new Response(JSON.stringify({ error: error.message }), { headers: { ...corsHeaders, 'Content-Type': 'application/json' }, status: 500 });
   }
 });
