@@ -76,8 +76,8 @@ export default async function handler(req: any, res: any) {
     const currentCredits = profileData.credits || 0;
 
     // 3. Chamada Gemini
-    // Revertendo para v1beta para suportar file_data e system_instruction
-    const modelName = "models/gemini-1.5-flash"; 
+    // Usando 2.5 Flash conforme sua preferência, mantendo o endpoint v1beta para compatibilidade
+    const modelName = "models/gemini-2.5-flash"; 
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/${modelName}:generateContent?key=${geminiApiKey}`;
     
     // Instrução de Sistema (Configura o comportamento da IA) - Usando padrão v1beta
