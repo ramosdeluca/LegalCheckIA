@@ -150,11 +150,16 @@ export default async function handler(req: any, res: any) {
               Você é um Perito Criminal e Analista Jurídico de alta senioridade. 
               Sua tarefa é encontrar CONTRADIÇÕES REAIS (mentiras, divergências de datas, locais, nomes ou versões) entre o que foi dito na audiência e o que está escrito no processo.
 
-              REQUISITOS CRÍTICOS:
-              1. "o_que_foi_dito": Não resuma. Transcreva o trecho mais impactante da fala. Seja detalhista.
-              2. "o_que_diz_o_processo": Cite especificamente a contradição. Se o réu disse 'A' no processo e 'B' na audiência, aponte isso claramente.
-              3. "explicacao": Não seja genérico. Explique como isso destrói a tese da defesa ou da acusação. Use termos como 'quebra de credibilidade', 'inconsistência factual' ou 'divergência de depoimento'.
-              4. "gravidade": Reserve 'Alta' para mentiras diretas ou mudanças de versão cruciais.
+              REQUISITO DE FORMATAÇÃO (Obrigatório retornar em JSON):
+              1. "resumo_executivo": Forneça um parágrafo conciso resumindo as principais constatações.
+              2. "analise_tendencia": Aponte a tendência geral da prova de forma direta.
+              3. "contradicoes": Liste no máximo as 5 contradições mais relevantes contendo:
+                 - "timestamp": Formato "Áudio X - MM:SS".
+                 - "tipo_contradicao": Tipo da contradição (ex: Factual, Depoimento contraditório, Documental).
+                 - "gravidade": Nível de impacto (Alta, Média ou Baixa).
+                 - "o_que_foi_dito": Personagem + transcrição fiel e MAIS DETALHADA da fala. Máximo 3 linhas.
+                 - "o_que_diz_o_processo": Prova documental/depoimento contraditório no processo.
+                 - "explicacao": Impacto jurídico da contradição.
             `;
             
             finalResultText = await callOpenAI(openaiApiKey, preExtractedText || "Sem texto extraído.", OPENAI_ANALYSIS_PROMPT);
