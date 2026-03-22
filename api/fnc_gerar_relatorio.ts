@@ -11,10 +11,10 @@ REQUISITO DE FORMATAÇÃO (Obrigatório retornar em JSON):
 1. "resumo_executivo": Forneça um parágrafo conciso resumindo as principais constatações.
 2. "analise_tendencia": Aponte a tendência geral da prova de forma direta.
 3. "contradicoes": Liste no máximo as 5 contradições mais relevantes contendo:
-   - "timestamp": Formato "Áudio X - MM:SS".
+   - "timestamp": DEVE seguir o formato EXATO: 'Áudio X - MM:SS' (ex: 'Áudio 2 - 04:20').
    - "tipo_contradicao": Tipo da contradição (ex: Factual, Depoimento contraditório, Documental).
    - "gravidade": Nível de impacto (Alta, Média ou Baixa).
-   - "o_que_foi_dito": Personagem + transcrição fiel e MAIS DETALHADA da fala. Máximo 3 linhas.
+   - "o_que_foi_dito": Personagem + transcrição fiel e MAIS DETALHADA da fala CITANDO O ÁUDIO DE ORIGEM. Máximo 3 linhas.
    - "o_que_diz_o_processo": Prova documental/depoimento contraditório no processo.
    - "explicacao": Impacto jurídica da contradição.
 `;
@@ -28,7 +28,6 @@ function formatTime(seconds: number) {
 async function transcribeWithDeepgram(apiKey: string, audioUrl: string, index: number) {
   console.log(`[Deepgram Fallback] Transcrevendo áudio ${index + 1} (${audioUrl})...`);
   try {
-    // Deepgram Nova-2-Legal com suporte a URL direta (muito mais rápido)
     const url = `https://api.deepgram.com/v1/listen?model=nova-2&smart_format=true&language=pt-BR&utterances=true&punctuate=true`;
     
     const response = await fetch(url, {
@@ -50,14 +49,14 @@ async function transcribeWithDeepgram(apiKey: string, audioUrl: string, index: n
     const utterances = res.results.utterances || [];
     
     if (utterances.length === 0) {
-        return `--- TRANSCRIÇÃO DE ÁUDIO ${index + 1} ---\n[Sem fala detectada ou áudio muito curto]\n`;
+        return `--- INÍCIO DO ARQUIVO: ÁUDIO ${index + 1} ---\n[Sem fala detectada ou áudio muito curto]\n--- FIM DO ÁUDIO ${index + 1} ---\n\n`;
     }
 
     const transcriptWithTimestamps = utterances
-        .map((u: any) => `[${formatTime(u.start)}] ${u.transcript}`)
+        .map((u: any) => `[${formatTime(u.start)}] - Áudio ${index + 1}: "${u.transcript}"`)
         .join('\n');
     
-    return `--- TRANSCRIÇÃO DE ÁUDIO ${index + 1} ---\n${transcriptWithTimestamps}\n\n`;
+    return `--- INÍCIO DO ARQUIVO: ÁUDIO ${index + 1} ---\n${transcriptWithTimestamps}\n--- FIM DO ÁUDIO ${index + 1} ---\n\n`;
   } catch (err: any) {
     console.error(`[Deepgram Fatal]`, err.message);
     return `[Erro crítico no Deepgram áudio ${index + 1}]`;
@@ -65,26 +64,26 @@ async function transcribeWithDeepgram(apiKey: string, audioUrl: string, index: n
 }
 
 async function callOpenAI(apiKey: string, text: string, transcript: string, prompt: string) {
-  console.log("[Worker Fallback] Chamando OpenAI GPT-4o-mini (com transcrição Deepgram Nova-2-Legal)...");
+  console.log("[Worker Fallback] Chamando OpenAI GPT-4o-mini (com reforço de etiquetas e ancoragem de tempo)...");
   
   const cleanPdf = text
     .replace(/\s+/g, ' ')
     .replace(/[^\w\sÀ-ÿ,.!?]/g, '')
     .replace(/\u0000/g, '') // Sanitize nulls
     .trim()
-    .slice(0, 300000);
+    .slice(0, 50000); // 50k chars p/ caber no limite de 30k TPM da OpenAI do usuário
 
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      model: "gpt-4o", // O 4o padrão é mais inteligente que o mini para copiar timestamps literais
+      model: "gpt-4o-mini", // Voltando para o mini (200k TPM) para evitar o erro 429
       messages: [
-        { role: "system", content: "Você é um Perito Criminal e Analista Jurídico de alta senioridade. Sua missão é realizar um confronto exaustivo entre a transcrição da audiência e o PDF do processo para encontrar mentiras e contradições.\n\nREQUISITO CRÍTICO DE TEMPO: Na transcrição, você verá marcas como [02:15]. Você DEVE COPIAR ESSES MARCADORES LITERALMENTE para o campo 'timestamp' das contradições. Nunca invente ou resuma horários.\n\nUse o formato JSON." },
-        { role: "user", content: `TRANSCRIÇÃO DA AUDIÊNCIA (DEEPGRAM NOVA-2):\n${transcript}\n\nCONTEÚDO DO PROCESSO (PDF):\n${cleanPdf}\n\n${prompt}` }
+        { role: "system", content: "Você é um Perito Criminal e Analista Jurídico de alta senioridade. Sua missão é realizar um confronto exaustivo entre a transcrição etiquetada e o PDF do processo para encontrar contradições.\n\nREQUISITO CRÍTICO DE ANCORAGEM: Cada linha de fala na transcrição já está rotulada com o número do áudio, exemplo: '[02:15] - Áudio 1: \"Texto\"'.\n\nNo campo 'timestamp' do JSON, você DEVE combinar a etiqueta com o tempo, exatamente no formato: 'Áudio X - MM:SS'. Exemplo: 'Áudio 1 - 02:15'. Isso é vital para que o usuário clique no áudio correto." },
+        { role: "user", content: `TRANSCRIÇÃO DA AUDIÊNCIA (ETIQUETADA):\n${transcript}\n\nCONTEÚDO DO PROCESSO (PDF):\n${cleanPdf}\n\n${prompt}` }
       ],
       response_format: { type: "json_object" },
-      temperature: 0.1 // Temperatura baixa para máxima precisão
+      temperature: 0.1
     })
   });
   
@@ -151,22 +150,22 @@ export default async function handler(req: any, res: any) {
     if (genResponse.ok) {
        const genResult = await genResponse.json();
        if (genResult.promptFeedback?.blockReason === "PROHIBITED_CONTENT" || !genResult.candidates?.[0]?.content?.parts?.[0]?.text) {
-          console.log("[Worker Fallback] Google bloqueou. Ativando Deepgram Fallback...");
+          console.log("[Worker Fallback] Google bloqueou. Ativando Deepgram...");
           if (openaiApiKey && deepgramApiKey) {
             let fullTranscript = "";
             for (let i = 0; i < mediaUrlsToTranscribe.length; i++) {
               fullTranscript += await transcribeWithDeepgram(deepgramApiKey, mediaUrlsToTranscribe[i], i);
             }
-            capturedTranscript = fullTranscript.replace(/\u0000/g, ''); // Sanitizar null chars
+            capturedTranscript = fullTranscript.replace(/\u0000/g, ''); 
             finalResultText = await callOpenAI(openaiApiKey, preExtractedText, fullTranscript, ANALYSIS_PROMPT);
           } else {
-            throw new Error("BLOCK: Chaves API (OpenAI ou Deepgram) não configuradas para fallback.");
+            throw new Error("BLOCK: Chaves API não configuradas.");
           }
        } else {
           finalResultText = genResult.candidates[0].content.parts[0].text;
        }
     } else {
-       console.warn("[Worker] Erro Gemini. Tentando resgate OpenAI...");
+       console.warn("[Worker] Erro Gemini. Resgate OpenAI...");
        if (openaiApiKey) {
           finalResultText = await callOpenAI(openaiApiKey, preExtractedText, "Sem transcrição (erro Gemini).", ANALYSIS_PROMPT);
        } else {
