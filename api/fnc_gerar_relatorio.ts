@@ -76,11 +76,11 @@ export default async function handler(req: any, res: any) {
     const currentCredits = profileData.credits || 0;
 
     // 3. Chamada Gemini
-    // Usando v1 (estável) para maior flexibilidade nos filtros de entrada
+    // Revertendo para v1beta para suportar file_data e system_instruction
     const modelName = "models/gemini-1.5-flash"; 
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1/${modelName}:generateContent?key=${geminiApiKey}`;
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/${modelName}:generateContent?key=${geminiApiKey}`;
     
-    // Instrução de Sistema (Configura o comportamento da IA)
+    // Instrução de Sistema (Configura o comportamento da IA) - Usando padrão v1beta
     const systemInstruction = {
       parts: [{ text: `Você é um Analista de Dados Técnicos. Sua missão é identificar inconsistências lógicas entre as fontes fornecidas.
         \n\n${ANALYSIS_PROMPT}` }]
@@ -100,7 +100,7 @@ export default async function handler(req: any, res: any) {
 
     const generationConfig = { 
       temperature: 0.1, 
-      responseMimeType: "application/json" 
+      response_mime_type: "application/json" 
     };
 
     const safetySettings = [
@@ -116,9 +116,9 @@ export default async function handler(req: any, res: any) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ 
         contents: currentContents,
-        systemInstruction,
-        generationConfig,
-        safetySettings
+        system_instruction: systemInstruction,
+        generation_config: generationConfig,
+        safety_settings: safetySettings
       })
     });
 
@@ -140,7 +140,7 @@ export default async function handler(req: any, res: any) {
              .replace(/[^\w\sÀ-ÿ,.!?]/g, '')    // Remove símbolos estranhos
              .slice(0, 30000); // Limite de 30k char (estratégia de guerrilha)
 
-          currentContents = [{
+          const fallbackContents = [{
             role: "user",
             parts: [{ text: `CONTEÚDO TÉCNICO PARA ANÁLISE ESTRUTURAL:\n\n${textCleaned}\n\nAnalise a estrutura lógica e identifique divergências conforme as regras de negócio.` }]
           }];
@@ -150,10 +150,9 @@ export default async function handler(req: any, res: any) {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ 
-              contents: currentContents,
-              // Sem systemInstruction no fallback extremo para ser o mais minimalista possível
-              generationConfig,
-              safetySettings
+              contents: fallbackContents,
+              generation_config: generationConfig,
+              safety_settings: safetySettings
             })
           });
           genResult = await genResponse.json();
