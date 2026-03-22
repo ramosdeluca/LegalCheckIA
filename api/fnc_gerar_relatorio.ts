@@ -140,12 +140,21 @@ export default async function handler(req: any, res: any) {
              .replace(/[^\w\sÀ-ÿ,.!?]/g, '')    // Remove símbolos estranhos
              .slice(0, 30000); // Limite de 30k char (estratégia de guerrilha)
 
+          // CRÍTICO: No fallback, mantemos os áudios/vídeos 
+          // e substituímos o PDF problemático pelo seu texto sanitizado.
+          const nonPdfUris = uris.filter((u: any) => !u.mime || !u.mime.includes('pdf'));
+          
           const fallbackContents = [{
             role: "user",
-            parts: [{ text: `CONTEÚDO TÉCNICO PARA ANÁLISE ESTRUTURAL:\n\n${textCleaned}\n\nAnalise a estrutura lógica e identifique divergências conforme as regras de negócio.` }]
+            parts: [
+              ...nonPdfUris.map((fileObj: any) => ({
+                file_data: { file_uri: fileObj.uri, mime_type: fileObj.mime }
+              })),
+              { text: `TEXTO DO PROCESSO PARA ANÁLISE:\n\n${textCleaned}\n\nAnalise as fontes (Áudio + Texto acima) e identifique as contradições.` }
+            ]
           }];
 
-          // Tentativa Final (Apenas Texto Sanitizado + Prompt Neutro)
+          // Tentativa Final (Áudios + Texto Sanitizado)
           genResponse = await fetch(geminiUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
