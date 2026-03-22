@@ -3,8 +3,8 @@ import { createClient } from '@supabase/supabase-js';
 const supabaseUrl = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || '';
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SERVICE_ROLE_KEY || '';
 const geminiApiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || '';
+const openaiApiKey = process.env.OPENAI_API_KEY || '';
 const anthropicApiKey = process.env.ANTHROPIC_API_KEY || '';
-const deepgramApiKey = process.env.DEEPGRAM_API_KEY || '';
 
 const ANALYSIS_PROMPT = `
 REQUISITO DE FORMATAÇÃO (Obrigatório retornar em JSON):
@@ -25,53 +25,72 @@ function formatTime(seconds: number) {
   return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
 }
 
-async function transcribeWithDeepgram(apiKey: string, audioUrl: string, index: number) {
-  console.log(`[Deepgram] Transcrevendo áudio ${index + 1} (${audioUrl})...`);
+async function transcribeWithWhisper(apiKey: string, audioUrl: string, index: number) {
+  console.log(`[Whisper] Transcrevendo áudio ${index + 1} (${audioUrl})...`);
   try {
-    const url = `https://api.deepgram.com/v1/listen?model=nova-2&smart_format=true&language=pt-BR&utterances=true&punctuate=true`;
+    const audioRes = await fetch(audioUrl);
+    if (!audioRes.ok) throw new Error("Erro ao baixar áudio para transcrição.");
+    const audioBlob = await audioRes.blob();
     
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Token ${apiKey}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ url: audioUrl })
-    });
+    let fullTranscript = "";
+    let offsetSeconds = 0;
+    const CHUNK_SIZE = 24 * 1024 * 1024; // 24MB para o limite de 25MB da OpenAI
+    const totalChunks = Math.ceil(audioBlob.size / CHUNK_SIZE);
 
-    if (!response.ok) {
-        const err = await response.text();
-        console.warn(`[Deepgram Error]`, err);
-        return `[Erro Deepgram no áudio ${index + 1}]`;
-    }
+    for (let c = 0; c < totalChunks; c++) {
+      const start = c * CHUNK_SIZE;
+      const end = Math.min(start + CHUNK_SIZE, audioBlob.size);
+      const chunkBlob = audioBlob.slice(start, end, "audio/wav");
 
-    const res = await response.json();
-    const utterances = res.results.utterances || [];
-    
-    if (utterances.length === 0) {
-        return `--- INÍCIO DO ARQUIVO: ÁUDIO ${index + 1} ---\n[Sem fala detectada ou áudio muito curto]\n--- FIM DO ÁUDIO ${index + 1} ---\n\n`;
-    }
+      const formData = new FormData();
+      formData.append("file", chunkBlob, `audio_${index}_${c}.wav`);
+      formData.append("model", "whisper-1");
+      formData.append("language", "pt");
+      formData.append("response_format", "verbose_json"); // Para pegar os segmentos e timestamps
 
-    const transcriptWithTimestamps = utterances
-        .map((u: any) => `[${formatTime(u.start)}] - Áudio ${index + 1}: "${u.transcript}"`)
+      const whisperRes = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${apiKey}` },
+        body: formData
+      });
+
+      if (!whisperRes.ok) {
+        const err = await whisperRes.text();
+        console.warn(`[Whisper Error] Chunk ${c+1}:`, err);
+        continue;
+      }
+
+      const res = await whisperRes.json();
+      const segments = res.segments || [];
+      
+      const chunkText = segments
+        .map((s: any) => `[${formatTime(s.start + offsetSeconds)}] - Áudio ${index + 1}: "${s.text}"`)
         .join('\n');
-    
-    return `--- INÍCIO DO ARQUIVO: ÁUDIO ${index + 1} ---\n${transcriptWithTimestamps}\n--- FIM DO ÁUDIO ${index + 1} ---\n\n`;
+      
+      fullTranscript += chunkText + "\n";
+      
+      // Atualiza o offset com o tempo final do último segmento deste chunk
+      if (segments.length > 0) {
+        offsetSeconds += segments[segments.length - 1].end;
+      }
+    }
+
+    return `--- INÍCIO DO ARQUIVO: ÁUDIO ${index + 1} ---\n${fullTranscript}\n--- FIM DO ÁUDIO ${index + 1} ---\n\n`;
   } catch (err: any) {
-    console.error(`[Deepgram Fatal]`, err.message);
-    return `[Erro crítico no Deepgram áudio ${index + 1}]`;
+    console.error(`[Whisper Fatal]`, err.message);
+    return `[Erro crítico no Whisper áudio ${index + 1}]`;
   }
 }
 
 async function callClaude(apiKey: string, text: string, transcript: string, prompt: string) {
-  console.log("[Worker Fallback] Acionando Claude 3.5 Sonnet para análise de elite...");
+  console.log("[Worker Fallback] Acionando Claude 4 (Sonnet) com transcrição Whisper...");
   
   const cleanPdf = text
     .replace(/\s+/g, ' ')
     .replace(/[^\w\sÀ-ÿ,.!?]/g, '')
     .replace(/\u0000/g, '') // Sanitize nulls
     .trim()
-    .slice(0, 150000); // 150k chars p/ caber no contexto do Claude 3.5 Sonnet (200k tokens)
+    .slice(0, 150000); 
 
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -84,9 +103,9 @@ async function callClaude(apiKey: string, text: string, transcript: string, prom
       model: "claude-sonnet-4-20250514",
       max_tokens: 4096,
       temperature: 0,
-      system: `Você é um Promotor de Justiça e Analista Judiciário Sênior de alto escalão. Sua missão é realizar um confronto exaustivo entre a transcrição etiquetada e o PDF do processo para encontrar contradições.\n\nREQUISITO CRÍTICO DE ANCORAGEM: Cada linha de fala na transcrição já está rotulada com o número do áudio, exemplo: '[02:15] - Áudio 1: \"Texto\"'.\n\nNo campo 'timestamp' do JSON, você DEVE combinar a etiqueta com o tempo, exatamente no formato: 'Áudio X - MM:SS'. Exemplo: 'Áudio 1 - 02:15'.\n\nSua análise deve ser incisiva, técnica e investigativa. Nunca resuma se houver detalhes relevantes.`,
+      system: `Você é um Promotor de Justiça e Analista Judiciário Sênior de alto escalão. Sua missão é realizar um confronto exaustivo entre a transcrição etiquetada e o PDF do processo para encontrar mentiras, omissões e contradições.\n\nREQUISITO CRÍTICO DE ANCORAGEM: Cada linha de fala na transcrição já está rotulada com o número do áudio, exemplo: '[02:15] - Áudio 1: \"Texto\"'.\n\nNo campo 'timestamp' do JSON, você DEVE combinar a etiqueta com o tempo, exatamente no formato: 'Áudio X - MM:SS'. Exemplo: 'Áudio 1 - 02:15'.\n\nSua análise deve ser incisiva, técnica e investigativa. Nunca resuma se houver detalhes relevantes.`,
       messages: [
-        { role: "user", content: `TRANSCRIÇÃO DA AUDIÊNCIA (ETIQUETADA):\n${transcript}\n\nCONTEÚDO DO PROCESSO (PDF):\n${cleanPdf}\n\n${prompt}\n\nRetorne APENAS um objeto JSON puro, sem conversinhas.` }
+        { role: "user", content: `TRANSCRIÇÃO DA AUDIÊNCIA (WHISPER ETIQUETADA):\n${transcript}\n\nCONTEÚDO DO PROCESSO (PDF):\n${cleanPdf}\n\n${prompt}\n\nRetorne APENAS um objeto JSON puro, sem conversinhas.` }
       ]
     })
   });
@@ -99,7 +118,6 @@ async function callClaude(apiKey: string, text: string, transcript: string, prom
   const result = await response.json();
   const content = result.content[0].text;
   
-  // Extração robusta de JSON caso o Claude adicione texto explicativo
   const jsonMatch = content.match(/\{[\s\S]*\}/);
   return jsonMatch ? jsonMatch[0] : content;
 }
@@ -158,22 +176,22 @@ export default async function handler(req: any, res: any) {
     if (genResponse.ok) {
        const genResult = await genResponse.json();
        if (genResult.promptFeedback?.blockReason === "PROHIBITED_CONTENT" || !genResult.candidates?.[0]?.content?.parts?.[0]?.text) {
-          console.log("[Worker Fallback] Google bloqueou. Ativando Claude Fallback...");
-          if (anthropicApiKey && deepgramApiKey) {
+          console.log("[Worker Fallback] Google bloqueou. Ativando Whisper + Claude...");
+          if (anthropicApiKey && openaiApiKey) {
             let fullTranscript = "";
             for (let i = 0; i < mediaUrlsToTranscribe.length; i++) {
-              fullTranscript += await transcribeWithDeepgram(deepgramApiKey, mediaUrlsToTranscribe[i], i);
+              fullTranscript += await transcribeWithWhisper(openaiApiKey, mediaUrlsToTranscribe[i], i);
             }
             capturedTranscript = fullTranscript.replace(/\u0000/g, ''); 
             finalResultText = await callClaude(anthropicApiKey, preExtractedText, fullTranscript, ANALYSIS_PROMPT);
           } else {
-            throw new Error("BLOCK: Chaves API não configuradas para fallback (ANTHROPIC + DEEPGRAM).");
+            throw new Error("BLOCK: Chaves API não configuradas para fallback (ANTHROPIC + OPENAI).");
           }
        } else {
           finalResultText = genResult.candidates[0].content.parts[0].text;
        }
     } else {
-       console.warn("[Worker] Erro Gemini. Ativando Claude Resgate...");
+       console.warn("[Worker] Erro Gemini. Ativando Resgate Claude...");
        if (anthropicApiKey) {
           finalResultText = await callClaude(anthropicApiKey, preExtractedText, "Sem transcrição (erro Gemini).", ANALYSIS_PROMPT);
        } else {
