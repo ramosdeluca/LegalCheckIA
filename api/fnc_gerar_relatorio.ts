@@ -177,7 +177,7 @@ export default async function handler(req: any, res: any) {
     const { data: profile } = await supabase.from('profiles').select('credits').eq('id', analise.user_id).single();
     const currentCredits = profile?.credits || 0;
 
-    const modelName = "models/gemini-2.5-flash"; 
+    const modelName = "models/gemini-2.5-pro"; 
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/${modelName}:generateContent?key=${geminiApiKey}`;
     
     console.log(`[Worker] Tentando Gemini...`);

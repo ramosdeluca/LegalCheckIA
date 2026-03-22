@@ -76,7 +76,7 @@ serve(async (req) => {
       .order('created_at', { ascending: true })
       .limit(10);
 
-    const modelName = "models/gemini-2.5-flash"; 
+    const modelName = "models/gemini-2.5-pro"; 
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/${modelName}:generateContent?key=${geminiApiKey}`;
 
     const generationBody = {
