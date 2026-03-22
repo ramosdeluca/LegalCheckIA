@@ -19,7 +19,15 @@ REQUISITO DE FORMATAÇÃO (Obrigatório retornar em JSON):
 `;
 
 async function callOpenAI(apiKey: string, text: string, prompt: string) {
-  console.log("[Worker Fallback] Chamando OpenAI GPT-4o-mini...");
+  console.log("[Worker Fallback] Chamando OpenAI GPT-4o-mini (com limpeza de tokens)...");
+  
+  // Limpeza de texto para economizar tokens e evitar erro 429
+  const cleanText = text
+    .replace(/\s+/g, ' ')           // Reduz espaços e quebras múltiplas
+    .replace(/[^\w\sÀ-ÿ,.!?]/g, '') // Remove caracteres especiais ruidosos
+    .trim()
+    .slice(0, 450000);              // Limite aprox de 150k tokens (margem de segurança)
+
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -29,8 +37,8 @@ async function callOpenAI(apiKey: string, text: string, prompt: string) {
     body: JSON.stringify({
       model: "gpt-4o-mini",
       messages: [
-        { role: "system", content: "Você é um assistente jurídico sênior. Analise o processo e retorne APENAS o JSON solicitado, sem comentários extras." },
-        { role: "user", content: `CONTEXTO DO PROCESSO:\n${text}\n\n${prompt}` }
+        { role: "system", content: "Você é um assistente jurídico sênior. Analise o processo e retorne APENAS o JSON solicitado." },
+        { role: "user", content: `CONTEXTO DO PROCESSO (DADOS TÉCNICOS):\n${cleanText}\n\n${prompt}` }
       ],
       response_format: { type: "json_object" },
       temperature: 0.1
