@@ -11,15 +11,14 @@ const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const geminiApiKey = Deno.env.get("GEMINI_API_KEY") ?? "";
 const openaiApiKey = Deno.env.get("OPENAI_API_KEY") ?? "";
 
-async function callOpenAIChat(text: string, history: any[], newMessage: string) {
-  console.log("[Chat Fallback] Chamando OpenAI GPT-4o-mini (com limpeza)...");
+async function callOpenAIChat(pdfText: string, audioTranscript: string, history: any[], newMessage: string) {
+  console.log("[Chat Fallback] Chamando OpenAI GPT-4o-mini (PDF + Áudio)...");
   
-  const cleanText = text
+  const cleanPdf = pdfText
     .replace(/\s+/g, ' ')
     .replace(/[^\w\sÀ-ÿ,.!?]/g, '')
-    .replace(/(ESTADO DE|PODER JUDICIÁRIO|TRIBUNAL DE JUSTIÇA|Documento assinado)/gi, '')
     .trim()
-    .slice(0, 350000);
+    .slice(0, 250000);
 
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
@@ -30,8 +29,8 @@ async function callOpenAIChat(text: string, history: any[], newMessage: string) 
     body: JSON.stringify({
       model: "gpt-4o-mini",
       messages: [
-        { role: "system", content: "Você é um Desembargador revisor altamente qualificado. Sua análise deve ser exaustiva, técnica e detalhada. Utilize Markdown para a resposta." },
-        { role: "user", content: `CONTEXTO DO PROCESSO:\n${cleanText}` },
+        { role: "system", content: "Você é um Desembargador revisor altamente qualificado. Responda baseado no processo (PDF) e nos depoimentos da audiência (Transcrição fornecida). Seja exaustivo e técnico." },
+        { role: "user", content: `CONTEXTO DO PROCESSO (PDF):\n${cleanPdf}\n\nTRANSCRIÇÃO DOS DEPOIMENTOS (ÁUDIO):\n${audioTranscript}` },
         ...history.map(h => ({ role: h.role === 'assistant' ? 'assistant' : 'user', content: h.content })),
         { role: "user", content: newMessage }
       ],
@@ -59,7 +58,7 @@ serve(async (req) => {
 
     const { data: analise, error: analiseError } = await supabase
       .from('analises')
-      .select('gemini_file_uris, chat_credits, pdf_text_content')
+      .select('gemini_file_uris, chat_credits, pdf_text_content, audio_transcription')
       .eq('id', analiseId)
       .single();
     
@@ -68,6 +67,7 @@ serve(async (req) => {
 
     const uris = analise.gemini_file_uris || [];
     const preExtractedText = analise.pdf_text_content;
+    const audioTranscript = analise.audio_transcription;
 
     const { data: history } = await supabase
       .from('analise_chats')
@@ -95,9 +95,6 @@ serve(async (req) => {
       ],
       generationConfig: { temperature: 0.2 },
       safetySettings: [
-        { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_NONE" },
-        { category: "HARM_CATEGORY_HATE_SPEECH", threshold: "BLOCK_NONE" },
-        { category: "HARM_CATEGORY_SEXUALLY_EXPLICIT", threshold: "BLOCK_NONE" },
         { category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" }
       ]
     };
@@ -114,9 +111,14 @@ serve(async (req) => {
     if (genResponse.ok) {
        const genResult = await genResponse.json();
        if (genResult.promptFeedback?.blockReason === "PROHIBITED_CONTENT" || !genResult.candidates?.[0]?.content?.parts?.[0]?.text) {
-          console.log("[Chat Fallback] Gemini bloqueou ou falhou. Tentando OpenAI...");
+          console.log("[Chat Fallback] Gemini bloqueou ou falhou. Usando Resgate OpenAI (PDF + Transcrição)...");
           if (openaiApiKey) {
-            aiResponse = await callOpenAIChat(preExtractedText || "Sem texto extraído.", history || [], message);
+            aiResponse = await callOpenAIChat(
+              preExtractedText || "Sem texto extraído.", 
+              audioTranscript || "Transcrição de áudio não disponível para esta análise.",
+              history || [], 
+              message
+            );
           } else {
             throw new Error("PROHIBITED_CONTENT: Google bloqueou e OpenAI não configurada.");
           }
@@ -126,7 +128,12 @@ serve(async (req) => {
     } else {
        console.warn("[Chat] Erro Gemini. Tentando OpenAI...");
        if (openaiApiKey) {
-          aiResponse = await callOpenAIChat(preExtractedText || "Sem texto extraído.", history || [], message);
+          aiResponse = await callOpenAIChat(
+            preExtractedText || "Sem texto extraído.", 
+            audioTranscript || "Transcrição de áudio não disponível.",
+            history || [], 
+            message
+          );
        } else {
           const errText = await genResponse.text();
           throw new Error(`Erro Gemini: ${genResponse.status} - ${errText}`);

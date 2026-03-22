@@ -33,9 +33,8 @@ async function transcribeAudio(apiKey: string, audioUrl: string, index: number) 
     const fullBuffer = new Uint8Array(arrayBuffer);
     
     const CHUNK_SIZE = 24 * 1024 * 1024;
-    // Duração de um chunk de 24MB em 8000Hz Mono 16-bit = 1572.86 segundos
-    const CHUNK_DURATION = 1572.86; 
-
+    const OVERLAP = 16000; // 1 segundo (8000 samples * 2 bytes)
+    
     if (fullBuffer.length <= CHUNK_SIZE) {
       return await sendToWhisper(apiKey, fullBuffer, index);
     } else {
@@ -45,7 +44,7 @@ async function transcribeAudio(apiKey: string, audioUrl: string, index: number) 
       const chunkCount = Math.ceil(pcmData.length / CHUNK_SIZE);
       
       for (let i = 0; i < chunkCount; i++) {
-        const start = i * CHUNK_SIZE;
+        const start = Math.max(0, i * CHUNK_SIZE - (i > 0 ? OVERLAP : 0));
         const end = Math.min(start + CHUNK_SIZE, pcmData.length);
         const chunkPcm = pcmData.slice(start, end);
         
@@ -55,7 +54,8 @@ async function transcribeAudio(apiKey: string, audioUrl: string, index: number) 
         chunkBuffer.set(chunkPcm, header.length);
 
         console.log(`[Whisper] Enviando fatia ${i + 1}/${chunkCount}...`);
-        const text = await sendToWhisper(apiKey, chunkBuffer, index, i, i * CHUNK_DURATION);
+        const timeOffset = (start / 16000); 
+        const text = await sendToWhisper(apiKey, chunkBuffer, index, i, timeOffset);
         combinedText += text + " ";
       }
       return `--- TRANSCRIÇÃO DE ÁUDIO ${index + 1} ---\n${combinedText}\n`;
@@ -88,6 +88,7 @@ function createWavHeader(dataLength: number) {
 async function sendToWhisper(apiKey: string, buffer: Uint8Array, audioIdx: number, chunkIdx?: number, timeOffset: number = 0) {
   const formData = new FormData();
   const filename = chunkIdx !== undefined ? `audio_${audioIdx}_p${chunkIdx}.wav` : `audio_${audioIdx}.wav`;
+  // Fix lint by using ArrayBuffer directly
   formData.append('file', new Blob([buffer.buffer as ArrayBuffer], { type: 'audio/wav' }), filename);
   formData.append('model', 'whisper-1');
   formData.append('language', 'pt');
@@ -192,6 +193,7 @@ export default async function handler(req: any, res: any) {
     });
 
     let finalResultText = "";
+    let capturedTranscript = "";
 
     if (genResponse.ok) {
        const genResult = await genResponse.json();
@@ -202,6 +204,7 @@ export default async function handler(req: any, res: any) {
             for (let i = 0; i < mediaUrlsToTranscribe.length; i++) {
               fullTranscript += `--- ÁUDIO ${i + 1} ---\n${await transcribeAudio(openaiApiKey, mediaUrlsToTranscribe[i], i)}\n\n`;
             }
+            capturedTranscript = fullTranscript;
             finalResultText = await callOpenAI(openaiApiKey, preExtractedText || "", fullTranscript || "Sem áudio disponível.", ANALYSIS_PROMPT);
           } else {
             throw new Error("BLOCK: OpenAI não configurada.");
@@ -221,7 +224,13 @@ export default async function handler(req: any, res: any) {
     if (!finalResultText) throw new Error("Falha total IA.");
     const resultJson = JSON.parse(finalResultText.replace(/```json\n?|```/g, '').trim());
 
-    await supabase.from('analises').update({ resultado_json: resultJson, status: 'concluido' }).eq('id', recordId);
+    // Se houve fallback, salvamos a transcrição para uso no Chat
+    await supabase.from('analises').update({ 
+      resultado_json: resultJson, 
+      status: 'concluido',
+      audio_transcription: capturedTranscript || null
+    }).eq('id', recordId);
+    
     await supabase.from('profiles').update({ credits: Math.max(0, currentCredits - 1) }).eq('id', analise.user_id);
     await supabase.from('analysis_jobs').update({ status: 'done', finished_at: new Date().toISOString() }).eq('id', jobId);
     
