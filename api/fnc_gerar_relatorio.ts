@@ -81,7 +81,7 @@ async function callClaude(apiKey: string, text: string, transcript: string, prom
         'content-type': 'application/json'
     },
     body: JSON.stringify({
-      model: "claude-3-5-sonnet-20240620",
+      model: "claude-3-5-sonnet-latest",
       max_tokens: 4096,
       temperature: 0,
       system: `Você é um Promotor de Justiça e Analista Judiciário Sênior de alto escalão. Sua missão é realizar um confronto exaustivo entre a transcrição etiquetada e o PDF do processo para encontrar contradições.\n\nREQUISITO CRÍTICO DE ANCORAGEM: Cada linha de fala na transcrição já está rotulada com o número do áudio, exemplo: '[02:15] - Áudio 1: \"Texto\"'.\n\nNo campo 'timestamp' do JSON, você DEVE combinar a etiqueta com o tempo, exatamente no formato: 'Áudio X - MM:SS'. Exemplo: 'Áudio 1 - 02:15'.\n\nSua análise deve ser incisiva, técnica e investigativa. Nunca resuma se houver detalhes relevantes.`,
