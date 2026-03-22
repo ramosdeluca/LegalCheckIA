@@ -38,7 +38,7 @@ async function callOpenAI(apiKey: string, text: string, prompt: string) {
     body: JSON.stringify({
       model: "gpt-4o-mini",
       messages: [
-        { role: "system", content: "Você é um Desembargador revisor. Sua análise deve ser exaustiva, técnica e extremamente detalhada. Não aceite respostas curtas." },
+        { role: "system", content: "Você é um Desembargador revisor. Sua análise deve ser exaustiva, técnica e extremamente detalhada no formato JSON. Não aceite respostas curtas." },
         { role: "user", content: `CONTEXTO DO PROCESSO (DADOS TÉCNICOS):\n${cleanText}\n\n${prompt}` }
       ],
       response_format: { type: "json_object" },
