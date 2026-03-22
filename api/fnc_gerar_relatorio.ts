@@ -18,6 +18,12 @@ REQUISITO DE FORMATAÇÃO (Obrigatório retornar em JSON):
    - "explicacao": Impacto jurídica da contradição.
 `;
 
+function formatTime(seconds: number) {
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+}
+
 async function transcribeAudio(apiKey: string, audioUrl: string, index: number) {
   console.log(`[Whisper Fallback] Transcrevendo áudio ${index + 1}...`);
   try {
@@ -26,15 +32,16 @@ async function transcribeAudio(apiKey: string, audioUrl: string, index: number) 
     const arrayBuffer = await audioResp.arrayBuffer();
     const fullBuffer = new Uint8Array(arrayBuffer);
     
-    // Whisper Limit (25MB). Vamos usar 24MB para segurança.
     const CHUNK_SIZE = 24 * 1024 * 1024;
-    
+    // Duração de um chunk de 24MB em 8000Hz Mono 16-bit = 1572.86 segundos
+    const CHUNK_DURATION = 1572.86; 
+
     if (fullBuffer.length <= CHUNK_SIZE) {
       return await sendToWhisper(apiKey, fullBuffer, index);
     } else {
       console.log(`[Whisper] Arquivo grande (${(fullBuffer.length / 1024 / 1024).toFixed(1)}MB). Fatiando...`);
       let combinedText = "";
-      const pcmData = fullBuffer.slice(44); // Assume WAV header
+      const pcmData = fullBuffer.slice(44); 
       const chunkCount = Math.ceil(pcmData.length / CHUNK_SIZE);
       
       for (let i = 0; i < chunkCount; i++) {
@@ -42,14 +49,13 @@ async function transcribeAudio(apiKey: string, audioUrl: string, index: number) 
         const end = Math.min(start + CHUNK_SIZE, pcmData.length);
         const chunkPcm = pcmData.slice(start, end);
         
-        // Criar Header WAV fake para cada pedaço (16kHz Mono 16-bit)
         const header = createWavHeader(chunkPcm.length);
         const chunkBuffer = new Uint8Array(header.length + chunkPcm.length);
         chunkBuffer.set(header, 0);
         chunkBuffer.set(chunkPcm, header.length);
 
         console.log(`[Whisper] Enviando fatia ${i + 1}/${chunkCount}...`);
-        const text = await sendToWhisper(apiKey, chunkBuffer, index, i);
+        const text = await sendToWhisper(apiKey, chunkBuffer, index, i, i * CHUNK_DURATION);
         combinedText += text + " ";
       }
       return `--- TRANSCRIÇÃO DE ÁUDIO ${index + 1} ---\n${combinedText}\n`;
@@ -63,28 +69,29 @@ async function transcribeAudio(apiKey: string, audioUrl: string, index: number) 
 function createWavHeader(dataLength: number) {
   const header = new Uint8Array(44);
   const view = new DataView(header.buffer);
-  header.set([82, 73, 70, 70], 0); // RIFF
+  header.set([82, 73, 70, 70], 0); 
   view.setUint32(4, dataLength + 36, true);
-  header.set([87, 65, 86, 69], 8); // WAVE
-  header.set([102, 109, 116, 32], 12); // fmt 
+  header.set([87, 65, 86, 69], 8); 
+  header.set([102, 109, 116, 32], 12); 
   view.setUint32(16, 16, true);
-  view.setUint16(20, 1, true); // PCM
-  view.setUint16(22, 1, true); // Mono
-  view.setUint32(24, 8000, true); // 8kHz (conforme asfe_audioExtractor.ts)
-  view.setUint32(28, 16000, true); // 8k * 2 bytes/sample
+  view.setUint16(20, 1, true); 
+  view.setUint16(22, 1, true); 
+  view.setUint32(24, 8000, true); 
+  view.setUint32(28, 16000, true); 
   view.setUint16(32, 2, true);
   view.setUint16(34, 16, true);
-  header.set([100, 97, 116, 97], 36); // data
+  header.set([100, 97, 116, 97], 36); 
   view.setUint32(40, dataLength, true);
   return header;
 }
 
-async function sendToWhisper(apiKey: string, buffer: Uint8Array, audioIdx: number, chunkIdx?: number) {
+async function sendToWhisper(apiKey: string, buffer: Uint8Array, audioIdx: number, chunkIdx?: number, timeOffset: number = 0) {
   const formData = new FormData();
   const filename = chunkIdx !== undefined ? `audio_${audioIdx}_p${chunkIdx}.wav` : `audio_${audioIdx}.wav`;
   formData.append('file', new Blob([buffer.buffer as ArrayBuffer], { type: 'audio/wav' }), filename);
   formData.append('model', 'whisper-1');
   formData.append('language', 'pt');
+  formData.append('response_format', 'verbose_json');
 
   const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
     method: 'POST',
@@ -99,18 +106,19 @@ async function sendToWhisper(apiKey: string, buffer: Uint8Array, audioIdx: numbe
   }
   
   const result = await response.json();
-  return result.text || "";
+  if (!result.segments) return result.text || "";
+  
+  return result.segments.map((s: any) => `[${formatTime(s.start + timeOffset)}] ${s.text}`).join(' ');
 }
 
 async function callOpenAI(apiKey: string, text: string, transcript: string, prompt: string) {
-  console.log("[Worker Fallback] Chamando OpenAI GPT-4o-mini (com transcrição)...");
+  console.log("[Worker Fallback] Chamando OpenAI GPT-4o-mini (com transcrição cronometrada)...");
   
   const cleanText = text
     .replace(/\s+/g, ' ')
     .replace(/[^\w\sÀ-ÿ,.!?]/g, '')
-    .replace(/(ESTADO DE|PODER JUDICIÁRIO|TRIBUNAL DE JUSTIÇA|Documento assinado)/gi, '')
     .trim()
-    .slice(0, 350000);
+    .slice(0, 300000);
 
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
@@ -118,11 +126,11 @@ async function callOpenAI(apiKey: string, text: string, transcript: string, prom
     body: JSON.stringify({
       model: "gpt-4o-mini",
       messages: [
-        { role: "system", content: "Você é um Desembargador revisor altamente qualificado. Sua análise deve ser exaustiva, técnica e extremamente detalhada no formato JSON. Não aceite respostas curtas." },
-        { role: "user", content: `DADOS TÉCNICOS DO PROCESSO (PDF):\n${cleanText}\n\nTRANSCRIÇÃO DA AUDIÊNCIA (ÁUDIO):\n${transcript}\n\n${prompt}` }
+        { role: "system", content: "Você é um Desembargador revisor altamente qualificado e extremamente detalhista. Use o formato JSON.\n\nSua análise deve ser exaustiva, comparando cada segundo da transcrição do áudio com o texto do processo. Se uma contradição for encontrada, indique o ÁUDIO e o TEMPO [MM:SS] exatos conforme as marcações na transcrição." },
+        { role: "user", content: `DADOS TÉCNICOS DO PROCESSO (PDF):\n${cleanText}\n\nTRANSCRIÇÃO DA AUDIÊNCIA COM MARCAS DE TEMPO (ÁUDIO):\n${transcript}\n\n${prompt}` }
       ],
       response_format: { type: "json_object" },
-      temperature: 0.3
+      temperature: 0.2
     })
   });
   
@@ -168,7 +176,6 @@ export default async function handler(req: any, res: any) {
     const { data: profile } = await supabase.from('profiles').select('credits').eq('id', analise.user_id).single();
     const currentCredits = profile?.credits || 0;
 
-    // 1. TENTATIVA GEMINI (Natual Multimodal)
     const modelName = "models/gemini-2.5-flash"; 
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/${modelName}:generateContent?key=${geminiApiKey}`;
     
@@ -177,7 +184,7 @@ export default async function handler(req: any, res: any) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ 
-        contents: [{ role: "user", parts: [...uris.map((f: any) => ({ file_data: { file_uri: f.uri, mime_type: f.mime } })), { text: "Analise contradições." }] }],
+        contents: [{ role: "user", parts: [...uris.map((f: any) => ({ file_data: { file_uri: f.uri, mime_type: f.mime } })), { text: "Analise contradições exaustivamente." }] }],
         system_instruction: { parts: [{ text: `Analista Jurídico de Elite.\n\n${ANALYSIS_PROMPT}` }] },
         generation_config: { temperature: 0.1, response_mime_type: "application/json" },
         safety_settings: [{ category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_NONE" }] 
@@ -189,11 +196,11 @@ export default async function handler(req: any, res: any) {
     if (genResponse.ok) {
        const genResult = await genResponse.json();
        if (genResult.promptFeedback?.blockReason === "PROHIBITED_CONTENT" || !genResult.candidates?.[0]?.content?.parts?.[0]?.text) {
-          console.log("[Worker Fallback] Google bloqueou. Ativando Whisper + GPT-4o-mini...");
+          console.log("[Worker Fallback] Google bloqueou. Ativando Whisper Cronometrado + GPT-4o-mini...");
           if (openaiApiKey) {
             let fullTranscript = "";
             for (let i = 0; i < mediaUrlsToTranscribe.length; i++) {
-              fullTranscript += await transcribeAudio(openaiApiKey, mediaUrlsToTranscribe[i], i);
+              fullTranscript += `--- ÁUDIO ${i + 1} ---\n${await transcribeAudio(openaiApiKey, mediaUrlsToTranscribe[i], i)}\n\n`;
             }
             finalResultText = await callOpenAI(openaiApiKey, preExtractedText || "", fullTranscript || "Sem áudio disponível.", ANALYSIS_PROMPT);
           } else {
@@ -205,7 +212,7 @@ export default async function handler(req: any, res: any) {
     } else {
        console.warn("[Worker] Erro Gemini. Tentando resgate OpenAI...");
        if (openaiApiKey) {
-          finalResultText = await callOpenAI(openaiApiKey, preExtractedText || "", "Sem transcrição (erro Gemini).", ANALYSIS_PROMPT);
+          finalResultText = await callOpenAI(openaiApiKey, preExtractedText || "", "Sem transcrição cronometrada (erro Gemini).", ANALYSIS_PROMPT);
        } else {
           throw new Error("Gemini Error: " + genResponse.status);
        }
