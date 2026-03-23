@@ -176,14 +176,16 @@ export default async function handler(req: any, res: any) {
     if (genResponse.ok) {
        const genResult = await genResponse.json();
        if (genResult.promptFeedback?.blockReason === "PROHIBITED_CONTENT" || !genResult.candidates?.[0]?.content?.parts?.[0]?.text) {
-          console.log("[Worker Fallback] Google bloqueou. Ativando Whisper + Claude...");
+          console.log("[Worker Fallback] Google bloqueou. Ativando Whisper + Claude (Paralelo)...");
           if (anthropicApiKey && openaiApiKey) {
-            let fullTranscript = "";
-            for (let i = 0; i < mediaUrlsToTranscribe.length; i++) {
-              fullTranscript += await transcribeWithWhisper(openaiApiKey, mediaUrlsToTranscribe[i], i);
-            }
-            capturedTranscript = fullTranscript.replace(/\u0000/g, ''); 
-            finalResultText = await callClaude(anthropicApiKey, preExtractedText, fullTranscript, ANALYSIS_PROMPT);
+            // Executa todas as transcrições simultaneamente para ganhar tempo e evitar timeout
+            const transcriptionPromises = mediaUrlsToTranscribe.map((url: string, i: number) => 
+               transcribeWithWhisper(openaiApiKey, url, i)
+            );
+            const transcriptionResults = await Promise.all(transcriptionPromises);
+            
+            capturedTranscript = transcriptionResults.join("").replace(/\u0000/g, ''); 
+            finalResultText = await callClaude(anthropicApiKey, preExtractedText, capturedTranscript, ANALYSIS_PROMPT);
           } else {
             throw new Error("BLOCK: Chaves API não configuradas para fallback (ANTHROPIC + OPENAI).");
           }
